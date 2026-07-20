@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ MonoFlow Pro - Advanced Monocular Drone Telemetry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #070a12;
+            --card-bg: rgba(18, 26, 42, 0.8);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --accent-green: #00ffc6;
+            --accent-blue: #3b82f6;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-purple: #a855f7;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(0, 255, 198, 0.04) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.04) 0px, transparent 50%);
+            overflow-x: hidden;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 36px;
+            background: rgba(11, 17, 30, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            font-size: 26px;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+        }
+
+        .logo-title {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-subtitle {
+            font-size: 11px;
+            color: var(--accent-green);
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .source-select-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 10px;
+        }
+
+        .source-select-wrapper label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        select {
+            background: #111827;
+            color: var(--accent-green);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        select:hover {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 10px rgba(0, 255, 198, 0.2);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 255, 198, 0.1);
+            border: 1px solid rgba(0, 255, 198, 0.3);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 20px;
+            padding: 24px 36px;
+            max-width: 1650px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .video-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            aspect-ratio: 16 / 9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .recording-pill {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            background: rgba(239, 68, 68, 0.85);
+            backdrop-filter: blur(8px);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .recording-pill .dot {
+            width: 6px;
+            height: 6px;
+            background: #fff;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        .controls-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            background: rgba(11, 17, 30, 0.7);
+            padding: 14px 18px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Outfit', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn:active { transform: translateY(0); }
+
+        .btn-start { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
+        .btn-stop { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
+        .btn-reset { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
+        .btn-mode { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
+        .btn-rec { background: linear-gradient(135deg, #f43f5e, #e11d48); color: #fff; }
+        .btn-power { background: linear-gradient(135deg, #64748b, #475569); color: #fff; }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .hud-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .hud-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .metric-box {
+            background: rgba(11, 17, 30, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .metric-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+        }
+
+        .metric-unit {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        /* Compass Visualizer */
+        .compass-card {
+            background: rgba(11, 17, 30, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .compass-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid var(--accent-blue);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .compass-needle {
+            width: 3px;
+            height: 26px;
+            background: var(--accent-green);
+            border-radius: 2px;
+            transform-origin: bottom center;
+            transition: transform 0.2s ease;
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .risk-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .risk-LOW { background: rgba(0, 255, 198, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
+        .risk-MEDIUM { background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
+        .risk-HIGH { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); animation: pulse 1s infinite; }
+
+        @media (max-width: 1024px) {
+            main { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-group">
+            <div class="logo-icon">⚡</div>
+            <div>
+                <div class="logo-title">MONO-FLOW PRO</div>
+                <div class="logo-subtitle">Advanced Monocular Vision System</div>
+            </div>
+        </div>
+
+        <div class="header-actions">
+            <div class="source-select-wrapper">
+                <label for="videoSource">FEED SOURCE:</label>
+                <select id="videoSource" onchange="changeSource(this.value)">
+                    <option value="Live Webcam (0)">Live Webcam (0)</option>
+                </select>
+            </div>
+
+            <div class="status-badge">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">CAMERA ACTIVE</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Main Video Container -->
+        <div class="video-card">
+            <div class="video-wrapper">
+                <div class="recording-pill" id="recPill">
+                    <div class="dot"></div> REC
+                </div>
+                <img src="/video_feed" class="video-feed" id="videoFeed" alt="Live Optical Flow Feed">
+            </div>
+
+            <div class="controls-toolbar">
+                <div class="btn-group">
+                    <button class="btn btn-start" onclick="sendControl('start')">▶ Start</button>
+                    <button class="btn btn-stop" onclick="sendControl('stop')">⏸ Stop</button>
+                    <button class="btn btn-reset" onclick="sendControl('reset')">🔄 Reset</button>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-power" id="btnPower" onclick="toggleCameraPower()">
+                        🔌 Power Off Camera
+                    </button>
+                    <button class="btn btn-mode" onclick="toggleFlowMode()">
+                        🔀 Mode: <span id="modeLabel">Sparse LK</span>
+                    </button>
+                    <button class="btn btn-rec" id="btnRecord" onclick="toggleRecording()">
+                        🔴 Record
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Telemetry HUD -->
+        <div class="sidebar">
+            <div class="hud-card">
+                <div class="hud-title">
+                    <span>📊 Flight Telemetry</span>
+                    <span id="modeBadge" style="color: var(--accent-purple); font-family: 'JetBrains Mono', monospace; font-size: 11px;">SPARSE LK</span>
+                </div>
+
+                <div class="metric-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Processing FPS</div>
+                        <div class="metric-value" id="valFps">--</div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">Tracked Vectors</div>
+                        <div class="metric-value" id="valVectors" style="color: var(--accent-blue);">--</div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">Displacement ΔX</div>
+                        <div class="metric-value" id="valDx">0.0<span class="metric-unit">px</span></div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">Displacement ΔY</div>
+                        <div class="metric-value" id="valDy">0.0<span class="metric-unit">px</span></div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">Cumulative Drift X</div>
+                        <div class="metric-value" id="valCumX" style="color: var(--accent-yellow);">0.0<span class="metric-unit">px</span></div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">Cumulative Drift Y</div>
+                        <div class="metric-value" id="valCumY" style="color: var(--accent-yellow);">0.0<span class="metric-unit">px</span></div>
+                    </div>
+                </div>
+
+                <!-- Navigation Compass Card -->
+                <div class="compass-card">
+                    <div>
+                        <div class="metric-label">Motion Compass</div>
+                        <div class="metric-value" id="valHeading" style="font-size: 18px;">0.0°</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;" id="valSpeed">Speed: 0.0 px/f</div>
+                    </div>
+
+                    <div class="compass-circle">
+                        <div class="compass-needle" id="compassNeedle"></div>
+                    </div>
+                </div>
+
+                <!-- Obstacle Risk Indicator -->
+                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(11,17,30,0.6); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color);">
+                    <div>
+                        <div class="metric-label">Obstacle Divergence Risk</div>
+                        <div style="font-size: 11px; color: var(--text-muted);" id="valDivergence">Div: 0.00</div>
+                    </div>
+                    <div class="risk-badge risk-LOW" id="riskBadge">LOW</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentMode = "sparse";
+        let isRecording = false;
+        let isPowerOn = true;
+        let sourcesLoaded = false;
+
+        async function loadSourcesOnce() {
+            if (sourcesLoaded) return;
+            try {
+                const res = await fetch('/api/sources');
+                const data = await res.json();
+                const sel = document.getElementById('videoSource');
+                sel.innerHTML = '';
+                
+                data.sources.forEach(src => {
+                    const opt = document.createElement('option');
+                    opt.value = src;
+                    opt.innerText = src;
+                    if (src === data.current) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                sourcesLoaded = true;
+            } catch (err) { console.error("Error loading sources:", err); }
+        }
+
+        async function changeSource(sourceName) {
+            const txt = document.getElementById('statusText');
+            const sel = document.getElementById('videoSource');
+            txt.innerText = 'LOADING SOURCE...';
+            sel.disabled = true;
+            
+            try {
+                await fetch('/api/select_source', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source: sourceName })
+                });
+                
+                setTimeout(() => {
+                    const feed = document.getElementById('videoFeed');
+                    feed.src = '/video_feed?t=' + Date.now();
+                    txt.innerText = 'CAMERA ACTIVE';
+                    sel.disabled = false;
+                }, 200);
+            } catch (err) {
+                console.error("Source change error:", err);
+                sel.disabled = false;
+            }
+        }
+
+        async function toggleCameraPower() {
+            isPowerOn = !isPowerOn;
+            const btn = document.getElementById('btnPower');
+            const dot = document.getElementById('statusDot');
+            const txt = document.getElementById('statusText');
+            
+            if (!isPowerOn) {
+                btn.innerHTML = '⚡ Power On Camera';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                dot.style.backgroundColor = '#ef4444';
+                dot.style.boxShadow = '0 0 10px #ef4444';
+                txt.innerText = 'CAMERA OFF';
+            } else {
+                btn.innerHTML = '🔌 Power Off Camera';
+                btn.style.background = 'linear-gradient(135deg, #64748b, #475569)';
+                dot.style.backgroundColor = '#00ffc6';
+                dot.style.boxShadow = '0 0 10px #00ffc6';
+                txt.innerText = 'CAMERA ACTIVE';
+            }
+
+            try {
+                await fetch('/api/camera_power', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ power_on: isPowerOn })
+                });
+            } catch (err) { console.error("Power toggle error:", err); }
+        }
+
+        async function sendControl(action) {
+            try {
+                await fetch(`/api/${action}`, { method: 'POST' });
+            } catch (err) { console.error("Control error:", err); }
+        }
+
+        async function toggleFlowMode() {
+            currentMode = (currentMode === "sparse") ? "dense" : "sparse";
+            document.getElementById('modeLabel').innerText = (currentMode === "sparse") ? "Sparse LK" : "Dense Farneback";
+            document.getElementById('modeBadge').innerText = (currentMode === "sparse") ? "SPARSE LK" : "DENSE FARNEBACK";
+            
+            try {
+                await fetch('/api/set_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: currentMode })
+                });
+            } catch (err) { console.error("Mode toggle error:", err); }
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('btnRecord');
+            const pill = document.getElementById('recPill');
+            
+            if (!isRecording) {
+                try {
+                    await fetch('/api/record_start', { method: 'POST' });
+                    isRecording = true;
+                    btn.innerHTML = '⏹️ Stop Rec';
+                    btn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
+                    pill.style.display = 'flex';
+                } catch (err) { console.error("Record start error:", err); }
+            } else {
+                try {
+                    const res = await fetch('/api/record_stop', { method: 'POST' });
+                    const data = await res.json();
+                    isRecording = false;
+                    btn.innerHTML = '🔴 Record';
+                    btn.style.background = 'linear-gradient(135deg, #f43f5e, #e11d48)';
+                    pill.style.display = 'none';
+                    alert(`Recording saved to: ${data.filename}`);
+                } catch (err) { console.error("Record stop error:", err); }
+            }
+        }
+
+        // Telemetry Polling
+        async function pollTelemetry() {
+            try {
+                const res = await fetch('/api/telemetry');
+                const data = await res.json();
+                
+                document.getElementById('valFps').innerText = data.fps || '--';
+                document.getElementById('valVectors').innerText = data.tracked_vectors.toLocaleString() || '0';
+                document.getElementById('valDx').innerHTML = `${data.dx.toFixed(1)}<span class="metric-unit">px</span>`;
+                document.getElementById('valDy').innerHTML = `${data.dy.toFixed(1)}<span class="metric-unit">px</span>`;
+                document.getElementById('valCumX').innerHTML = `${data.cum_x.toFixed(1)}<span class="metric-unit">px</span>`;
+                document.getElementById('valCumY').innerHTML = `${data.cum_y.toFixed(1)}<span class="metric-unit">px</span>`;
+                document.getElementById('valHeading').innerText = `${data.heading_deg.toFixed(1)}°`;
+                document.getElementById('valSpeed').innerText = `Speed: ${data.speed.toFixed(1)} px/f`;
+                document.getElementById('valDivergence').innerText = `Div: ${data.divergence.toFixed(2)}`;
+                
+                document.getElementById('compassNeedle').style.transform = `rotate(${data.heading_deg}deg)`;
+                
+                const rBadge = document.getElementById('riskBadge');
+                rBadge.className = `risk-badge risk-${data.obstacle_risk}`;
+                rBadge.innerText = data.obstacle_risk;
+            } catch (err) {}
+        }
+
+        loadSourcesOnce();
+        setInterval(pollTelemetry, 200);
+    </script>
+</body>
+</html>
