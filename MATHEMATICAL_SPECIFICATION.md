@@ -1,116 +1,182 @@
-# 📐 Monocular Optical Flow Telemetry Specification
+# Monocular Optical Flow Telemetry Architecture
 
-This document provides the universal mathematical equations and inter-relationships for all parameters in your Monocular Optical Flow system. It is formatted to render cleanly across all Markdown previewers (VS Code, GitHub, Obsidian, Jupyter).
+Mathematical workflow describing how raw camera video is converted into flight telemetry for the Walle FPV platform.
 
----
+**Notation key**
 
-## 📌 1. Parameter Summary & Formulas
-
-| Parameter Name | Symbol | Standard Formula | Units | Physical / Engineering Meaning |
-| :--- | :--- | :--- | :--- | :--- |
-| **Frames Per Second** | **FPS** | `FPS = 1 / Δt` | Hz (fps) | Sampling frequency of video processing pipeline. |
-| **Tracked Vectors** | **N** | `N = Count(inlier points)` | Count | Statistical sample size & measurement confidence. |
-| **Horizontal Displacement** | **ΔX** | `ΔX = Mean(x_k - x_{k-1})` | px/frame | Average pixel shift along image horizontal X-axis. |
-| **Vertical Displacement** | **ΔY** | `ΔY = Mean(y_k - y_{k-1})` | px/frame | Average pixel shift along image vertical Y-axis. |
-| **Speed Magnitude** | **S** | `S = √( ΔX² + ΔY² )` | px/frame | Scalar 2D magnitude of movement speed. |
-| **Heading Angle** | **θ** | `θ = atan2(ΔY, ΔX) × (180 / π)` | degrees (°) | Angular direction of drone motion [-180°, +180°]. |
-| **Cumulative Drift X** | **ΣX** | `ΣX_k = ΣX_{k-1} + ΔX_k` | pixels | Integrated horizontal drift from initial takeoff. |
-| **Cumulative Drift Y** | **ΣY** | `ΣY_k = ΣY_{k-1} + ΔY_k` | pixels | Integrated vertical drift from initial takeoff. |
-| **Flow Divergence** | **Div** | `Div = Mean( (p_i - c) · v_i / ||p_i - c|| )` | sec⁻¹ | Radial expansion rate outward from image center. |
-| **Obstacle Risk** | **Risk** | `Risk = HIGH (Div > 2.5), MED (1.2-2.5), LOW (< 1.2)` | Level | Automatic collision alert classification. |
+| Symbol | Meaning |
+|---|---|
+| i | index of a tracked feature point (i = 1 … N) |
+| k | index of the current frame; k−1 = previous frame |
+| t | index of a frame in the drift-integration history |
+| N | number of inlier (successfully tracked) points |
+| M | total number of candidate grid points |
+| xᵢ , yᵢ | pixel coordinates of point i |
+| ΔXₖ , ΔYₖ | mean frame-level displacement at frame k |
 
 ---
 
-## 2. Step-by-Step Detailed Mathematical Formulations
+## 1. Pipeline Overview
 
-### ⏱️ 2.1 Processing Frame Rate (FPS)
-* **Equation**:
-  $$\text{FPS} = \frac{1}{\Delta t} = \frac{1}{t_k - t_{k-1}}$$
-* **Description**: Measures elapsed processing time between consecutive frames.
-* **Conversion**: Converts per-frame measurements ($\text{px/f}$) into per-second rates ($\text{px/s}$).
+```mermaid
+flowchart TD
+    A["Frame k−1 and Frame k<br/>Raw Video Input"] --> B["Feature Point Detection<br/>Grid points pᵢ = (xᵢ, yᵢ)"]
+    B --> C["Lucas-Kanade Pyramid Tracking<br/>Per-point displacement (δxᵢ, δyᵢ)"]
+    C --> D["Mean Displacement<br/>ΔXₖ, ΔYₖ"]
+    D --> E["Speed<br/>Sₚₓ/f"]
+    D --> F["Heading<br/>θdeg"]
+    D --> G["Cumulative Drift<br/>ΣXₖ, ΣYₖ"]
+    E --> H["Divergence and Risk<br/>D → LOW / MEDIUM / HIGH"]
+    F --> H
+    G --> H
+```
 
----
+**Stage summary**
 
-### 🎯 2.2 Tracked Feature Vectors (N)
-* **Equation**:
-  $$N = \sum_{i=1}^{M} \text{Inlier}(p_i)$$
-* **Description**: Total count of high-confidence corner features tracked by Pyramid Lucas-Kanade.
+| Stage | Process | Output |
+|---|---|---|
+| 1 | Capture consecutive frames | Frame k−1, Frame k |
+| 2 | Detect feature points on a grid | Points pᵢ = (xᵢ, yᵢ) |
+| 3 | Lucas-Kanade pyramid tracking | Per-point displacement (δxᵢ, δyᵢ) |
+| 4 | Average displacement across points | Mean ΔXₖ, ΔYₖ |
+| 5 | Derive motion metrics | Speed, Heading, Cumulative Drift |
+| 6 | Compute radial divergence | Obstacle risk level |
 
----
-
-### ↔️ 2.3 Horizontal & Vertical Mean Displacements (ΔX, ΔY)
-* **Equations**:
-  $$\Delta X = \frac{1}{N} \sum_{i=1}^{N} (x_{i, k} - x_{i, k-1})$$
-
-  $$\Delta Y = \frac{1}{N} \sum_{i=1}^{N} (y_{i, k} - y_{i, k-1})$$
-
-* **Inter-relationship**: $\Delta X$ and $\Delta Y$ are the fundamental root outputs of the optical flow engine. All downstream metrics are derived from this pair.
-
----
-
-### ⚡ 2.4 Speed Magnitude (S) & Ground Speed (V)
-* **Pixel Speed Equation**:
-  $$S = \sqrt{\Delta X^2 + \Delta Y^2} \quad [\text{px/frame}]$$
-
-* **Real Metric Velocity Equation**:
-  $$V = S \times \text{FPS} \times \left( \frac{Z}{f} \right) \quad [\text{m/s}]$$
-  *(where $Z$ is altitude height above ground, and $f$ is camera focal length).*
+> ΔXₖ and ΔYₖ are the root values. Every downstream metric (Speed, Heading, Drift, Divergence) is derived directly from this pair.
 
 ---
 
-### 🧭 2.5 Navigation Heading Angle (θ)
-* **Equation**:
-  $$\theta = \operatorname{atan2}(\Delta Y, \Delta X) \times \frac{180}{\pi} \quad [^\circ]$$
+## 2. Stage-by-Stage Derivations
 
-* **Compass Direction Mapping**:
-  * `0.0°` = Motion to the Right ($\Delta X > 0, \Delta Y = 0$)
-  * `+90.0°` = Motion Downwards ($\Delta X = 0, \Delta Y > 0$)
-  * `±180.0°` = Motion to the Left ($\Delta X < 0, \Delta Y = 0$)
-  * `-90.0°` = Motion Upwards ($\Delta X = 0, \Delta Y < 0$)
-
----
-
-### 📍 2.6 Cumulative Drift (ΣX, ΣY) & Total Drift Distance (D)
-* **Integrated Equations**:
-  $$\Sigma X_k = \Sigma X_{k-1} + \Delta X_k$$
-
-  $$\Sigma Y_k = \Sigma Y_{k-1} + \Delta Y_k$$
-
-* **Total Distance from Takeoff**:
-  $$D = \sqrt{(\Sigma X)^2 + (\Sigma Y)^2} \quad [\text{pixels}]$$
-
----
-
-### 🌊 2.7 Flow Divergence & Collision Risk
-* **Divergence Equation**:
-  $$\text{Divergence} = \frac{1}{N} \sum_{i=1}^{N} \frac{(x_i - c_x) u_i + (y_i - c_y) v_i}{\sqrt{(x_i - c_x)^2 + (y_i - c_y)^2}}$$
-
-* **Risk Decision Rule**:
-  $$\text{Obstacle Risk} = \begin{cases} \text{HIGH}, & \text{if Divergence } > 2.50 \\ \text{MEDIUM}, & \text{if } 1.20 < \text{Divergence } \le 2.50 \\ \text{LOW}, & \text{if Divergence } \le 1.20 \end{cases}$$
-
----
-
-## 3. Dataflow Connection Diagram
+### Stage 1 – Frame Rate
 
 ```
-                 +--------------------------------+
-                 |    Frame (k-1) & Frame (k)     |
-                 +---------------+----------------+
-                                 |
-                                 v  Lucas-Kanade Tracking
-                 +---------------+----------------+
-                 | Feature Displacements (dx, dy) |
-                 +---------------+----------------+
-                                 |
-                                 v  Mean Filter
-                 +---------------+----------------+
-                 |   Displacement Pair (ΔX, ΔY)   |
-                 +----+----------+----------+-----+
-                      |          |          |
-         +------------+          |          +------------+
-         v                       v                       v
- +---------------+       +---------------+       +---------------+
- | Speed (S)     |       | Heading (θ)   |       | Cum. Drift    |
- | √(ΔX² + ΔY²)  |       | atan2(ΔY, ΔX) |       | ΣX+ΔX, ΣY+ΔY  |
- +---------------+       +---------------+       +---------------+
+FPS = 1 / (tₖ − tₖ₋₁)
 ```
+
+Time delta between the current frame k and the previous frame k−1.
+
+### Stage 2 – Tracked Vector Count
+
+```
+N = Σ (i=1 to M)  𝟙[ pᵢ is an inlier ]
+```
+
+- **M** — total candidate grid points
+- **𝟙[·]** — indicator function (1 if the point passes the LK confidence check, 0 otherwise)
+- **N** sets the statistical reliability of every downstream metric
+
+### Stage 3 – Per-Point Displacement
+
+For each tracked point pᵢ = (xᵢ, yᵢ), between frame k−1 and frame k:
+
+```
+δxᵢ = xᵢ,ₖ − xᵢ,ₖ₋₁
+δyᵢ = yᵢ,ₖ − yᵢ,ₖ₋₁
+```
+
+- **xᵢ,ₖ** — x-coordinate of point i at frame k
+- **xᵢ,ₖ₋₁** — x-coordinate of the same point i at frame k−1
+(same convention for y)
+
+### Stage 4 – Mean Displacement (ΔXₖ, ΔYₖ)
+
+Average the per-point displacements over all N inlier points:
+
+```
+        1   N
+ΔXₖ =  ─── Σ  δxᵢ
+        N  i=1
+
+        1   N
+ΔYₖ =  ─── Σ  δyᵢ
+        N  i=1
+```
+
+### Stage 5A – Speed
+
+**Pixel-space speed magnitude:**
+
+```
+Sₚₓ/f = √( (ΔXₖ)² + (ΔYₖ)² )
+```
+
+**Conversion to real-world speed** — Z = altitude above ground, f = camera focal length:
+
+```
+Sₘ/ₛ = Sₚₓ/f × FPS × (Z / f)
+```
+
+### Stage 5B – Heading
+
+```
+θdeg = atan2(ΔYₖ, ΔXₖ) × (180 / π)
+```
+
+| θdeg | Direction |
+|---|---|
+| 0° | Right |
+| +90° | Down |
+| ±180° | Left |
+| −90° | Up |
+
+### Stage 5C – Cumulative Drift
+
+Discrete integration of displacement from takeoff (k = 0) to the current frame k:
+
+```
+                          k
+ΣXₖ = ΣXₖ₋₁ + ΔXₖ  =  Σ  ΔXₜ
+                         t=1
+
+                          k
+ΣYₖ = ΣYₖ₋₁ + ΔYₖ  =  Σ  ΔYₜ
+                         t=1
+```
+
+Sent to the flight controller for indoor position hold and automatic drift compensation.
+
+### Stage 6 – Divergence and Obstacle Risk
+
+Let **c** = (W/2, H/2) be the image center.
+For point i: **rᵢ** = pᵢ − c (radial vector from center to point), **vᵢ** = (δxᵢ, δyᵢ) (its displacement vector).
+
+**Radial divergence** — mean outward expansion rate of flow vectors:
+
+```
+        1   N    rᵢ · vᵢ
+D  =   ─── Σ    ─────────
+        N  i=1    ‖rᵢ‖
+```
+
+**Obstacle risk classification:**
+
+```
+              ⎧ HIGH,    D > 2.50
+Obstacle_Risk = ⎨ MEDIUM,  1.20 < D ≤ 2.50
+              ⎩ LOW,     D ≤ 1.20
+```
+
+---
+
+## 3. Master Parameter Table
+
+| Parameter | Symbol | Depends On | Formula | Engineering Use |
+|---|---|---|---|---|
+| `FPS` | — | Frame timestamps | 1 / (tₖ − tₖ₋₁) | Loop stability check (≥ 30 Hz) |
+| `Tracked_Vectors` | N | LK inlier mask | Σᵢ₌₁ᴹ 𝟙[inlierᵢ] | Measurement confidence index |
+| `Displacement_dX` | ΔXₖ | Point coordinates | (1/N) Σᵢ₌₁ᴺ (xᵢ,ₖ − xᵢ,ₖ₋₁) | Horizontal velocity component |
+| `Displacement_dY` | ΔYₖ | Point coordinates | (1/N) Σᵢ₌₁ᴺ (yᵢ,ₖ − yᵢ,ₖ₋₁) | Vertical velocity component |
+| `Speed_px_f` | Sₚₓ/f | ΔXₖ, ΔYₖ | √(ΔXₖ² + ΔYₖ²) | Total 2D movement speed |
+| `Heading_deg` | θdeg | ΔXₖ, ΔYₖ | atan2(ΔYₖ, ΔXₖ) × 180/π | Motion compass HUD needle angle |
+| `Cumulative_Drift_X` | ΣXₖ | Past ΔX history | Σₜ₌₁ᵏ ΔXₜ | Position lock / return-to-home |
+| `Cumulative_Drift_Y` | ΣYₖ | Past ΔY history | Σₜ₌₁ᵏ ΔYₜ | Position lock / return-to-home |
+| `Divergence` | D | Vectors + image center | (1/N) Σᵢ₌₁ᴺ (rᵢ·vᵢ)/‖rᵢ‖ | Approaching-obstacle expansion rate |
+| `Obstacle_Risk` | — | D | Piecewise threshold on D | Automatic emergency braking trigger |
+
+---
+
+## References
+
+- Part of the **Walle FPV** autonomous quadcopter platform documentation.
+- Related module: Sparse Lucas-Kanade / Dense Farneback Optical Flow implementations.
