@@ -21,11 +21,7 @@
             --text-muted: #94a3b8;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Outfit', sans-serif;
@@ -66,24 +62,13 @@
             font-weight: 700;
         }
 
-        .logo-title {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }
-
-        .logo-subtitle {
-            font-size: 11px;
-            color: var(--accent-green);
-            font-family: 'JetBrains Mono', monospace;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+        .logo-title { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+        .logo-subtitle { font-size: 11px; color: var(--accent-green); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 1px; }
 
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             flex-wrap: wrap;
         }
 
@@ -117,10 +102,7 @@
             transition: all 0.2s ease;
         }
 
-        select:hover {
-            border-color: var(--accent-green);
-            box-shadow: 0 0 10px rgba(0, 255, 198, 0.2);
-        }
+        select:hover { border-color: var(--accent-green); box-shadow: 0 0 10px rgba(0, 255, 198, 0.2); }
 
         .btn-header {
             background: linear-gradient(135deg, #10b981, #059669);
@@ -141,9 +123,14 @@
 
         .btn-header:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4); }
 
+        .btn-delete {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            display: none;
+        }
+
         .btn-csv {
             background: linear-gradient(135deg, #f59e0b, #d97706);
-            color: #fff;
             box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
         }
 
@@ -169,11 +156,7 @@
             animation: pulse 2s infinite;
         }
 
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
 
         main {
             flex: 1;
@@ -211,11 +194,7 @@
             align-items: center;
         }
 
-        .video-feed {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
+        .video-feed { width: 100%; height: 100%; object-fit: contain; }
 
         .recording-pill {
             position: absolute;
@@ -235,13 +214,7 @@
             box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
         }
 
-        .recording-pill .dot {
-            width: 6px;
-            height: 6px;
-            background: #fff;
-            border-radius: 50%;
-            animation: pulse 1s infinite;
-        }
+        .recording-pill .dot { width: 6px; height: 6px; background: #fff; border-radius: 50%; animation: pulse 1s infinite; }
 
         .controls-toolbar {
             display: flex;
@@ -255,10 +228,7 @@
             flex-wrap: wrap;
         }
 
-        .btn-group {
-            display: flex;
-            gap: 10px;
-        }
+        .btn-group { display: flex; gap: 10px; }
 
         .btn {
             display: inline-flex;
@@ -276,11 +246,7 @@
             letter-spacing: 0.5px;
         }
 
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        }
-
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
         .btn:active { transform: translateY(0); }
 
         .btn-start { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
@@ -289,11 +255,7 @@
         .btn-mode { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
         .btn-rec { background: linear-gradient(135deg, #f43f5e, #e11d48); color: #fff; }
 
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
+        .sidebar { display: flex; flex-direction: column; gap: 18px; }
 
         .hud-card {
             background: var(--card-bg);
@@ -318,11 +280,7 @@
             justify-content: space-between;
         }
 
-        .metric-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
+        .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
         .metric-box {
             background: rgba(11, 17, 30, 0.6);
@@ -334,25 +292,9 @@
             gap: 2px;
         }
 
-        .metric-label {
-            font-size: 10px;
-            color: var(--text-muted);
-            font-family: 'JetBrains Mono', monospace;
-            text-transform: uppercase;
-        }
-
-        .metric-value {
-            font-size: 20px;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-            color: var(--accent-green);
-        }
-
-        .metric-unit {
-            font-size: 10px;
-            color: var(--text-muted);
-            margin-left: 2px;
-        }
+        .metric-label { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; }
+        .metric-value { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--accent-green); }
+        .metric-unit { font-size: 10px; color: var(--text-muted); margin-left: 2px; }
 
         .compass-card {
             background: rgba(11, 17, 30, 0.6);
@@ -397,9 +339,7 @@
         .risk-MEDIUM { background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
         .risk-HIGH { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); animation: pulse 1s infinite; }
 
-        @media (max-width: 1024px) {
-            main { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 1024px) { main { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -421,6 +361,10 @@
                 </select>
             </div>
 
+            <button class="btn-header btn-delete" id="btnDeleteVideo" onclick="deleteCurrentVideo()">
+                🗑️ Delete Video
+            </button>
+
             <button class="btn-header" onclick="triggerVideoUpload()">
                 📤 Upload Video
             </button>
@@ -438,7 +382,6 @@
     </header>
 
     <main>
-        <!-- Main Video Container -->
         <div class="video-card">
             <div class="video-wrapper">
                 <div class="recording-pill" id="recPill">
@@ -465,7 +408,6 @@
             </div>
         </div>
 
-        <!-- Sidebar Telemetry HUD -->
         <div class="sidebar">
             <div class="hud-card">
                 <div class="hud-title">
@@ -505,7 +447,6 @@
                     </div>
                 </div>
 
-                <!-- Navigation Compass Card -->
                 <div class="compass-card">
                     <div>
                         <div class="metric-label">Motion Compass</div>
@@ -518,7 +459,6 @@
                     </div>
                 </div>
 
-                <!-- Obstacle Risk Indicator -->
                 <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(11,17,30,0.6); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color);">
                     <div>
                         <div class="metric-label">Obstacle Divergence Risk</div>
@@ -533,7 +473,6 @@
     <script>
         let currentMode = "sparse";
         let isRecording = false;
-        let sourcesLoaded = false;
 
         async function loadSourcesOnce() {
             try {
@@ -549,8 +488,18 @@
                     if (src === data.current) opt.selected = true;
                     sel.appendChild(opt);
                 });
-                sourcesLoaded = true;
+                
+                checkDeleteButtonVisibility(data.current);
             } catch (err) { console.error("Error loading sources:", err); }
+        }
+
+        function checkDeleteButtonVisibility(sourceName) {
+            const btnDel = document.getElementById('btnDeleteVideo');
+            if (sourceName && sourceName.includes('uploads')) {
+                btnDel.style.display = 'inline-flex';
+            } else {
+                btnDel.style.display = 'none';
+            }
         }
 
         async function changeSource(sourceName) {
@@ -570,10 +519,44 @@
                     const feed = document.getElementById('videoFeed');
                     feed.src = '/video_feed?t=' + Date.now();
                     sel.disabled = false;
+                    checkDeleteButtonVisibility(sourceName);
                 }, 200);
             } catch (err) {
                 console.error("Source change error:", err);
                 sel.disabled = false;
+            }
+        }
+
+        async function deleteCurrentVideo() {
+            const sel = document.getElementById('videoSource');
+            const currentSrc = sel.value;
+            if (!currentSrc || !currentSrc.includes('uploads')) {
+                alert("Only uploaded videos can be deleted.");
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete '${currentSrc}' from the server?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/delete_source', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source: currentSrc })
+                });
+                const data = await res.json();
+                if (data.status === 'deleted') {
+                    alert("Uploaded video deleted successfully!");
+                    await loadSourcesOnce();
+                    const feed = document.getElementById('videoFeed');
+                    feed.src = '/video_feed?t=' + Date.now();
+                } else {
+                    alert(`Failed to delete video: ${data.error}`);
+                }
+            } catch (err) {
+                console.error("Delete error:", err);
+                alert("Error deleting video file.");
             }
         }
 
@@ -663,7 +646,6 @@
             }
         }
 
-        // Telemetry Polling
         async function pollTelemetry() {
             try {
                 const res = await fetch('/api/telemetry');

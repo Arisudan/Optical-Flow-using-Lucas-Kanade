@@ -104,6 +104,35 @@ class AdvancedOpticalFlowEngine:
             self.pending_source = source_name
             self.need_reload = True
 
+    def delete_uploaded_source(self, source_name):
+        """Safely deletes an uploaded video file from uploads/ directory."""
+        with self.lock:
+            if not source_name or ("uploads" not in source_name.lower() and "upload" not in source_name.lower()):
+                return False, "Cannot delete built-in drone videos or live webcam."
+            
+            normalized_path = os.path.normpath(source_name)
+            if not os.path.exists(normalized_path):
+                alt_path = os.path.normpath(os.path.join(UPLOAD_DIR, os.path.basename(source_name)))
+                if os.path.exists(alt_path):
+                    normalized_path = alt_path
+                else:
+                    return False, f"File '{source_name}' does not exist on server."
+
+            if self.current_source == source_name and self.cap is not None:
+                self.cap.release()
+                self.cap = None
+
+            try:
+                os.remove(normalized_path)
+                print(f"[DELETE SUCCESS] Deleted uploaded video file: '{normalized_path}'")
+                
+                self.scan_sources()
+                self.pending_source = "Live Webcam (0)"
+                self.need_reload = True
+                return True, "Video file deleted successfully."
+            except Exception as e:
+                return False, f"Failed to delete file: {str(e)}"
+
     def _perform_source_reload_fast(self, target=None):
         if target is None:
             with self.lock:
@@ -127,7 +156,7 @@ class AdvancedOpticalFlowEngine:
             self.cap = cv2.VideoCapture(target)
             self.is_video_file = True
             if not self.cap.isOpened():
-                print(f"⚠️ Warning: Could not open video file '{target}' with default backend.")
+                print(f"Warning: Could not open video file '{target}' with default backend.")
 
         with self.lock:
             self.current_source = target
@@ -286,7 +315,6 @@ class AdvancedOpticalFlowEngine:
             if cap_ref is not None and cap_ref.isOpened() and (tracking_on or is_file):
                 ret, frame = cap_ref.read()
                 
-                # Seamless Video Looping Guard: If video ends (ret is False), re-open file so it NEVER goes blank!
                 if not ret and is_file:
                     cap_ref.release()
                     cap_ref = cv2.VideoCapture(current_src)
@@ -295,7 +323,6 @@ class AdvancedOpticalFlowEngine:
                         self.p0 = None
                     ret, frame = cap_ref.read()
 
-            # Visual Canvas when Camera Off or Stopped
             if frame is None or frame.size == 0:
                 frame = np.zeros((self.target_h, self.target_w, 3), dtype=np.uint8)
                 for x in range(0, self.target_w, 40):
@@ -330,7 +357,6 @@ class AdvancedOpticalFlowEngine:
             if tracking_on and self.old_gray is not None:
                 self.frame_counter += 1
                 if self.flow_mode == "sparse":
-                    # SPARSE LUCAS-KANADE GRID FLOW
                     if self.p0 is None or len(self.p0) < 15:
                         self.p0 = self.initialize_spatial_grid(frame_gray)
                         self.mask_trail = np.zeros_like(frame)
@@ -414,7 +440,6 @@ class AdvancedOpticalFlowEngine:
                     else: self.p0 = self.initialize_spatial_grid(frame_gray)
 
                 elif self.flow_mode == "dense":
-                    # DENSE FARNEBACK FLOW HEATMAP
                     if self.old_gray.shape == frame_gray.shape:
                         flow = cv2.calcOpticalFlowFarneback(self.old_gray, frame_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
                         fx, fy = flow[..., 0], flow[..., 1]
@@ -501,7 +526,6 @@ def api_upload_video():
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
 
-    # Robust Filename Sanitization preserving extension
     raw_name = os.path.basename(file.filename)
     clean_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', raw_name)
     if not clean_name:
@@ -514,6 +538,16 @@ def api_upload_video():
     engine.scan_sources()
     engine.request_source_load(save_path)
     return jsonify({"status": "uploaded", "source": save_path, "sources": engine.sources})
+
+@app.route('/api/delete_source', methods=['POST'])
+def api_delete_source():
+    data = request.get_json() or {}
+    source = data.get("source", "")
+    success, msg = engine.delete_uploaded_source(source)
+    if success:
+        return jsonify({"status": "deleted", "message": msg, "sources": engine.sources, "current": engine.current_source})
+    else:
+        return jsonify({"error": msg}), 400
 
 @app.route('/api/export_csv', methods=['GET'])
 def api_export_csv():

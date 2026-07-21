@@ -123,6 +123,12 @@
 
         .btn-header:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4); }
 
+        .btn-delete {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            display: none;
+        }
+
         .btn-csv {
             background: linear-gradient(135deg, #f59e0b, #d97706);
             box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
@@ -348,6 +354,10 @@
                 </select>
             </div>
 
+            <button class="btn-header btn-delete" id="btnDeleteVideo" onclick="deleteCurrentVideo()">
+                🗑️ Delete Video
+            </button>
+
             <button class="btn-header" onclick="triggerUpload()">
                 📤 Upload Video
             </button>
@@ -447,7 +457,6 @@
         </div>
     </main>
 
-    <!-- Hidden Processing Canvas for Pixel Optical Flow Extraction -->
     <canvas id="procCanvas" width="160" height="90" style="display: none;"></canvas>
 
     <script>
@@ -466,7 +475,6 @@
         let telemetryHistory = [];
         let prevGray = null;
 
-        // Ensure Video Never Goes Blank at EOF (Loop Handler)
         video.onended = function() {
             video.currentTime = 0;
             video.play();
@@ -486,10 +494,39 @@
             const opt = document.createElement('option');
             opt.value = fileURL;
             opt.innerText = `Uploaded: ${file.name}`;
+            opt.setAttribute('data-user-uploaded', 'true');
             opt.selected = true;
             sel.appendChild(opt);
 
             changeSource(fileURL);
+        }
+
+        function checkDeleteBtnVisibility(val) {
+            const btnDel = document.getElementById('btnDeleteVideo');
+            const sel = document.getElementById('videoSource');
+            const selectedOpt = sel.options[sel.selectedIndex];
+            
+            if (selectedOpt && selectedOpt.getAttribute('data-user-uploaded') === 'true') {
+                btnDel.style.display = 'inline-flex';
+            } else {
+                btnDel.style.display = 'none';
+            }
+        }
+
+        function deleteCurrentVideo() {
+            const sel = document.getElementById('videoSource');
+            const selectedOpt = sel.options[sel.selectedIndex];
+            
+            if (!selectedOpt || selectedOpt.getAttribute('data-user-uploaded') !== 'true') {
+                alert("Only user uploaded videos can be deleted.");
+                return;
+            }
+
+            if (confirm(`Remove uploaded video '${selectedOpt.text}'?`)) {
+                sel.removeChild(selectedOpt);
+                sel.selectedIndex = 0;
+                changeSource(sel.value);
+            }
         }
 
         function changeSource(val) {
@@ -511,12 +548,11 @@
                 }
                 video.src = val;
                 video.currentTime = 0;
-                video.play().catch(err => {
-                    console.log("Autoplay waiting for user interaction:", err);
-                });
+                video.play().catch(err => {});
                 isWebcam = false;
             }
             cumX = 0; cumY = 0; telemetryHistory = []; frameIndex = 0; prevGray = null;
+            checkDeleteBtnVisibility(val);
         }
 
         function startTracking() {
