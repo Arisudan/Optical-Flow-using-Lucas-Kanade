@@ -170,22 +170,38 @@ class AdvancedOpticalFlowEngine:
         cell_w = w // self.grid_cols
         cell_h = h // self.grid_rows
         
-        points = []
-        feature_params = dict(maxCorners=1, qualityLevel=0.1, minDistance=3, blockSize=5)
+        feature_params = dict(maxCorners=300, qualityLevel=0.1, minDistance=3, blockSize=5)
         
+        # Single call to goodFeaturesToTrack on full gray_frame
+        call_count = 1
+        print(f"[GRID INIT] Made {call_count} call to cv2.goodFeaturesToTrack (down from {self.grid_rows * self.grid_cols})")
+        
+        corners = cv2.goodFeaturesToTrack(gray_frame, mask=None, **feature_params)
+        
+        cell_best_corner = {}
+        if corners is not None:
+            for pt in corners:
+                x, y = float(pt[0][0]), float(pt[0][1])
+                c = int(x // cell_w)
+                r = int(y // cell_h)
+                
+                c = min(max(c, 0), self.grid_cols - 1)
+                r = min(max(r, 0), self.grid_rows - 1)
+                
+                cell_key = (r, c)
+                if cell_key not in cell_best_corner:
+                    cell_best_corner[cell_key] = [x, y]
+                    
+        points = []
         for r in range(self.grid_rows):
             for c in range(self.grid_cols):
-                y1, y2 = r * cell_h, (r + 1) * cell_h
-                x1, x2 = c * cell_w, (c + 1) * cell_w
-                cell_crop = gray_frame[y1:y2, x1:x2]
-                
-                corners = cv2.goodFeaturesToTrack(cell_crop, mask=None, **feature_params)
-                if corners is not None and len(corners) > 0:
-                    cx = corners[0][0][0] + x1
-                    cy = corners[0][0][1] + y1
-                    points.append([[cx, cy]])
+                cell_key = (r, c)
+                if cell_key in cell_best_corner:
+                    points.append([cell_best_corner[cell_key]])
                 else:
-                    points.append([[x1 + cell_w / 2, y1 + cell_h / 2]])
+                    x1 = c * cell_w
+                    y1 = r * cell_h
+                    points.append([[x1 + cell_w / 2.0, y1 + cell_h / 2.0]])
                     
         return np.array(points, dtype=np.float32) if len(points) > 0 else None
 
