@@ -239,7 +239,7 @@ Divergence ≤ 1.20        →  LOW
 
 Dataflow Connection Diagram
 
-```mermaid
+```
                  +--------------------------------+
                  |    Frame (k-1) & Frame (k)     |
                  +---------------+----------------+
