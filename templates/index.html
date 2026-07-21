@@ -126,7 +126,7 @@
         .btn-delete {
             background: linear-gradient(135deg, #ef4444, #dc2626);
             box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-            display: none;
+            display: inline-flex;
         }
 
         .btn-csv {
@@ -488,18 +488,7 @@
                     if (src === data.current) opt.selected = true;
                     sel.appendChild(opt);
                 });
-                
-                checkDeleteButtonVisibility(data.current);
             } catch (err) { console.error("Error loading sources:", err); }
-        }
-
-        function checkDeleteButtonVisibility(sourceName) {
-            const btnDel = document.getElementById('btnDeleteVideo');
-            if (sourceName && sourceName.includes('uploads')) {
-                btnDel.style.display = 'inline-flex';
-            } else {
-                btnDel.style.display = 'none';
-            }
         }
 
         async function changeSource(sourceName) {
@@ -519,7 +508,6 @@
                     const feed = document.getElementById('videoFeed');
                     feed.src = '/video_feed?t=' + Date.now();
                     sel.disabled = false;
-                    checkDeleteButtonVisibility(sourceName);
                 }, 200);
             } catch (err) {
                 console.error("Source change error:", err);
@@ -530,29 +518,50 @@
         async function deleteCurrentVideo() {
             const sel = document.getElementById('videoSource');
             const currentSrc = sel.value;
-            if (!currentSrc || !currentSrc.includes('uploads')) {
-                alert("Only uploaded videos can be deleted.");
-                return;
-            }
-
-            if (!confirm(`Are you sure you want to delete '${currentSrc}' from the server?`)) {
-                return;
-            }
 
             try {
-                const res = await fetch('/api/delete_source', {
+                const res = await fetch('/api/sources');
+                const data = await res.json();
+                const uploadedVideos = data.sources.filter(s => s.toLowerCase().includes('upload'));
+
+                if (uploadedVideos.length === 0) {
+                    alert("No custom uploaded videos currently exist on the server to delete.");
+                    return;
+                }
+
+                let targetToDelete = currentSrc;
+                if (!currentSrc.toLowerCase().includes('upload')) {
+                    let msg = "Select an uploaded video to delete:\n\n";
+                    uploadedVideos.forEach((v, idx) => {
+                        msg += `${idx + 1}. ${v}\n`;
+                    });
+                    const choice = prompt(msg + "\nEnter the number (1-" + uploadedVideos.length + "):");
+                    if (!choice) return;
+                    const num = parseInt(choice);
+                    if (isNaN(num) || num < 1 || num > uploadedVideos.length) {
+                        alert("Invalid selection.");
+                        return;
+                    }
+                    targetToDelete = uploadedVideos[num - 1];
+                }
+
+                if (!confirm(`Are you sure you want to delete '${targetToDelete}' from the server?`)) {
+                    return;
+                }
+
+                const delRes = await fetch('/api/delete_source', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ source: currentSrc })
+                    body: JSON.stringify({ source: targetToDelete })
                 });
-                const data = await res.json();
-                if (data.status === 'deleted') {
-                    alert("Uploaded video deleted successfully!");
+                const delData = await delRes.json();
+                if (delData.status === 'deleted') {
+                    alert("Video file deleted successfully!");
                     await loadSourcesOnce();
                     const feed = document.getElementById('videoFeed');
                     feed.src = '/video_feed?t=' + Date.now();
                 } else {
-                    alert(`Failed to delete video: ${data.error}`);
+                    alert(`Failed to delete video: ${delData.error}`);
                 }
             } catch (err) {
                 console.error("Delete error:", err);

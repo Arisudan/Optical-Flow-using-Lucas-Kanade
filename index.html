@@ -126,7 +126,7 @@
         .btn-delete {
             background: linear-gradient(135deg, #ef4444, #dc2626);
             box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-            display: none;
+            display: inline-flex;
         }
 
         .btn-csv {
@@ -501,31 +501,38 @@
             changeSource(fileURL);
         }
 
-        function checkDeleteBtnVisibility(val) {
-            const btnDel = document.getElementById('btnDeleteVideo');
-            const sel = document.getElementById('videoSource');
-            const selectedOpt = sel.options[sel.selectedIndex];
-            
-            if (selectedOpt && selectedOpt.getAttribute('data-user-uploaded') === 'true') {
-                btnDel.style.display = 'inline-flex';
-            } else {
-                btnDel.style.display = 'none';
-            }
-        }
-
         function deleteCurrentVideo() {
             const sel = document.getElementById('videoSource');
-            const selectedOpt = sel.options[sel.selectedIndex];
-            
-            if (!selectedOpt || selectedOpt.getAttribute('data-user-uploaded') !== 'true') {
-                alert("Only user uploaded videos can be deleted.");
+            const userUploadedOpts = Array.from(sel.options).filter(opt => opt.getAttribute('data-user-uploaded') === 'true');
+
+            if (userUploadedOpts.length === 0) {
+                alert("No custom uploaded videos currently exist in the browser to delete.");
                 return;
             }
 
-            if (confirm(`Remove uploaded video '${selectedOpt.text}'?`)) {
-                sel.removeChild(selectedOpt);
+            const selectedOpt = sel.options[sel.selectedIndex];
+            let targetOpt = selectedOpt;
+
+            if (!selectedOpt || selectedOpt.getAttribute('data-user-uploaded') !== 'true') {
+                let msg = "Select an uploaded video to remove:\n\n";
+                userUploadedOpts.forEach((opt, idx) => {
+                    msg += `${idx + 1}. ${opt.text}\n`;
+                });
+                const choice = prompt(msg + "\nEnter the number (1-" + userUploadedOpts.length + "):");
+                if (!choice) return;
+                const num = parseInt(choice);
+                if (isNaN(num) || num < 1 || num > userUploadedOpts.length) {
+                    alert("Invalid selection.");
+                    return;
+                }
+                targetOpt = userUploadedOpts[num - 1];
+            }
+
+            if (confirm(`Remove uploaded video '${targetOpt.text}'?`)) {
+                sel.removeChild(targetOpt);
                 sel.selectedIndex = 0;
                 changeSource(sel.value);
+                alert("Uploaded video removed!");
             }
         }
 
@@ -552,7 +559,6 @@
                 isWebcam = false;
             }
             cumX = 0; cumY = 0; telemetryHistory = []; frameIndex = 0; prevGray = null;
-            checkDeleteBtnVisibility(val);
         }
 
         function startTracking() {
