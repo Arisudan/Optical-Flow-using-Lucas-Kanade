@@ -48,6 +48,8 @@
             background: rgba(11, 17, 30, 0.85);
             backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 12px;
         }
 
         .logo-group {
@@ -81,7 +83,8 @@
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
+            flex-wrap: wrap;
         }
 
         .source-select-wrapper {
@@ -119,6 +122,31 @@
             box-shadow: 0 0 10px rgba(0, 255, 198, 0.2);
         }
 
+        .btn-header {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+            transition: all 0.2s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-header:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4); }
+
+        .btn-csv {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+        }
+
         .status-badge {
             display: flex;
             align-items: center;
@@ -135,9 +163,9 @@
         .status-dot {
             width: 8px;
             height: 8px;
-            background-color: var(--accent-green);
+            background-color: #ef4444;
             border-radius: 50%;
-            box-shadow: 0 0 10px var(--accent-green);
+            box-shadow: 0 0 10px #ef4444;
             animation: pulse 2s infinite;
         }
 
@@ -260,7 +288,6 @@
         .btn-reset { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; }
         .btn-mode { background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: #fff; }
         .btn-rec { background: linear-gradient(135deg, #f43f5e, #e11d48); color: #fff; }
-        .btn-power { background: linear-gradient(135deg, #64748b, #475569); color: #fff; }
 
         .sidebar {
             display: flex;
@@ -327,7 +354,6 @@
             margin-left: 2px;
         }
 
-        /* Compass Visualizer */
         .compass-card {
             background: rgba(11, 17, 30, 0.6);
             border: 1px solid var(--border-color);
@@ -383,7 +409,7 @@
             <div class="logo-icon">⚡</div>
             <div>
                 <div class="logo-title">MONO-FLOW PRO</div>
-                <div class="logo-subtitle">Advanced Monocular Vision System</div>
+                <div class="logo-subtitle">Advanced Monocular Vision Telemetry</div>
             </div>
         </div>
 
@@ -395,9 +421,18 @@
                 </select>
             </div>
 
+            <button class="btn-header" onclick="triggerVideoUpload()">
+                📤 Upload Video
+            </button>
+            <input type="file" id="fileInput" accept="video/*" style="display: none;" onchange="handleFileUpload(this)">
+
+            <button class="btn-header btn-csv" onclick="downloadCSV()">
+                📊 Export CSV Telemetry
+            </button>
+
             <div class="status-badge">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">CAMERA ACTIVE</span>
+                <span id="statusText">STOPPED / OFF</span>
             </div>
         </div>
     </header>
@@ -420,9 +455,6 @@
                 </div>
 
                 <div class="btn-group">
-                    <button class="btn btn-power" id="btnPower" onclick="toggleCameraPower()">
-                        🔌 Power Off Camera
-                    </button>
                     <button class="btn btn-mode" onclick="toggleFlowMode()">
                         🔀 Mode: <span id="modeLabel">Sparse LK</span>
                     </button>
@@ -501,11 +533,9 @@
     <script>
         let currentMode = "sparse";
         let isRecording = false;
-        let isPowerOn = true;
         let sourcesLoaded = false;
 
         async function loadSourcesOnce() {
-            if (sourcesLoaded) return;
             try {
                 const res = await fetch('/api/sources');
                 const data = await res.json();
@@ -526,7 +556,7 @@
         async function changeSource(sourceName) {
             const txt = document.getElementById('statusText');
             const sel = document.getElementById('videoSource');
-            txt.innerText = 'LOADING SOURCE...';
+            txt.innerText = 'LOADING...';
             sel.disabled = true;
             
             try {
@@ -539,7 +569,6 @@
                 setTimeout(() => {
                     const feed = document.getElementById('videoFeed');
                     feed.src = '/video_feed?t=' + Date.now();
-                    txt.innerText = 'CAMERA ACTIVE';
                     sel.disabled = false;
                 }, 200);
             } catch (err) {
@@ -548,38 +577,50 @@
             }
         }
 
-        async function toggleCameraPower() {
-            isPowerOn = !isPowerOn;
-            const btn = document.getElementById('btnPower');
-            const dot = document.getElementById('statusDot');
+        function triggerVideoUpload() {
+            document.getElementById('fileInput').click();
+        }
+
+        async function handleFileUpload(input) {
+            if (!input.files || input.files.length === 0) return;
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
             const txt = document.getElementById('statusText');
-            
-            if (!isPowerOn) {
-                btn.innerHTML = '⚡ Power On Camera';
-                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-                dot.style.backgroundColor = '#ef4444';
-                dot.style.boxShadow = '0 0 10px #ef4444';
-                txt.innerText = 'CAMERA OFF';
-            } else {
-                btn.innerHTML = '🔌 Power Off Camera';
-                btn.style.background = 'linear-gradient(135deg, #64748b, #475569)';
-                dot.style.backgroundColor = '#00ffc6';
-                dot.style.boxShadow = '0 0 10px #00ffc6';
-                txt.innerText = 'CAMERA ACTIVE';
-            }
+            txt.innerText = 'UPLOADING VIDEO...';
 
             try {
-                await fetch('/api/camera_power', {
+                const res = await fetch('/api/upload_video', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ power_on: isPowerOn })
+                    body: formData
                 });
-            } catch (err) { console.error("Power toggle error:", err); }
+                const data = await res.json();
+                if (data.status === 'uploaded') {
+                    alert(`Video '${file.name}' uploaded successfully!`);
+                    await loadSourcesOnce();
+                    const feed = document.getElementById('videoFeed');
+                    feed.src = '/video_feed?t=' + Date.now();
+                } else {
+                    alert(`Upload failed: ${data.error}`);
+                }
+            } catch (err) {
+                console.error("Upload error:", err);
+                alert("Error uploading video file.");
+            }
+        }
+
+        function downloadCSV() {
+            window.location.href = '/api/export_csv';
         }
 
         async function sendControl(action) {
             try {
                 await fetch(`/api/${action}`, { method: 'POST' });
+                if (action === 'start') {
+                    const feed = document.getElementById('videoFeed');
+                    feed.src = '/video_feed?t=' + Date.now();
+                }
             } catch (err) { console.error("Control error:", err); }
         }
 
@@ -640,6 +681,19 @@
                 
                 document.getElementById('compassNeedle').style.transform = `rotate(${data.heading_deg}deg)`;
                 
+                const dot = document.getElementById('statusDot');
+                const txt = document.getElementById('statusText');
+                
+                if (data.is_tracking) {
+                    dot.style.backgroundColor = '#00ffc6';
+                    dot.style.boxShadow = '0 0 10px #00ffc6';
+                    txt.innerText = 'TRACKING ACTIVE';
+                } else {
+                    dot.style.backgroundColor = '#ef4444';
+                    dot.style.boxShadow = '0 0 10px #ef4444';
+                    txt.innerText = 'STOPPED / OFF';
+                }
+
                 const rBadge = document.getElementById('riskBadge');
                 rBadge.className = `risk-badge risk-${data.obstacle_risk}`;
                 rBadge.innerText = data.obstacle_risk;

@@ -5,12 +5,18 @@ import glob
 import time
 import threading
 import atexit
-from flask import Flask, render_template, Response, jsonify, request
+import io
+import csv
+from datetime import datetime
+from werkzeug.utils import secure_filename
+from flask import Flask, render_template, Response, jsonify, request, send_file
 
 app = Flask(__name__, template_folder="templates")
 
 OUTPUT_DIR = "optical_flow_results"
+UPLOAD_DIR = "uploads"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class AdvancedOpticalFlowEngine:
     def __init__(self):
@@ -26,8 +32,12 @@ class AdvancedOpticalFlowEngine:
         
         # Settings
         self.flow_mode = "sparse"  # "sparse" (LK Grid) or "dense" (Farneback HSV)
-        self.is_tracking_enabled = True
-        self.camera_power_on = True
+        self.is_tracking_enabled = False
+        self.camera_power_on = False
+        
+        # Telemetry History Log for Exact CSV Export
+        self.telemetry_history = []
+        self.frame_counter = 0
         
         # Live Recording State
         self.is_recording = False
@@ -63,9 +73,6 @@ class AdvancedOpticalFlowEngine:
         self.mask_trail = None
         
         self.scan_sources()
-        self._perform_source_reload_fast(self.sources[0] if self.sources else "Live Webcam (0)")
-        
-        # Register cleanup on process exit
         atexit.register(self.close_all_resources)
 
     def close_all_resources(self):
@@ -80,27 +87,20 @@ class AdvancedOpticalFlowEngine:
                 self.recorder = None
 
     def scan_sources(self):
-        """Scans for local video files (DJI drone footage) and webcam option."""
+        """Scans for local video files (DJI drone footage & uploaded videos)."""
         dji_files = sorted(list(set(glob.glob("DJI_*.MP4") + glob.glob("DJI_*.mp4"))))
         dji_files = [f for f in dji_files if "optical_flow" not in f and not os.path.isdir(f)]
         
-        self.sources = ["Live Webcam (0)"] + dji_files
+        upload_files = sorted(glob.glob(os.path.join(UPLOAD_DIR, "*.*")))
+        upload_files = [f for f in upload_files if not os.path.isdir(f)]
+        
+        self.sources = ["Live Webcam (0)"] + dji_files + upload_files
 
     def request_source_load(self, source_name):
         """Thread-safe non-blocking request to switch video source."""
         with self.lock:
             self.pending_source = source_name
             self.need_reload = True
-            self.camera_power_on = True
-
-    def toggle_camera_power(self, power_on):
-        """Allows turning off the physical webcam hardware on demand."""
-        with self.lock:
-            self.camera_power_on = power_on
-            if not power_on and self.cap is not None:
-                print("Turning OFF camera hardware...")
-                self.cap.release()
-                self.cap = None
 
     def _perform_source_reload_fast(self, target=None):
         if target is None:
@@ -116,18 +116,11 @@ class AdvancedOpticalFlowEngine:
             time.sleep(0.05)
 
         if target in ["Live Webcam (0)", "0"]:
-            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             self.is_video_file = False
-            
-            if not self.cap.isOpened():
-                print("Live webcam 0 unavailable. Falling back to local DJI video...")
-                dji_files = [s for s in self.sources if s != "Live Webcam (0)"]
-                if dji_files:
-                    target = dji_files[0]
-                    self.cap = cv2.VideoCapture(target)
-                    self.is_video_file = True
-                else:
-                    self.cap = None
+            if self.camera_power_on:
+                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            else:
+                self.cap = None
         else:
             self.cap = cv2.VideoCapture(target)
             self.is_video_file = True
@@ -164,18 +157,38 @@ class AdvancedOpticalFlowEngine:
         return np.array(points, dtype=np.float32) if len(points) > 0 else None
 
     def start_tracking(self):
+        """Start tracking and hardware camera power if webcam selected."""
         with self.lock:
             self.is_tracking_enabled = True
+            if not self.is_video_file:
+                self.camera_power_on = True
+                self.need_reload = True
+            elif self.cap is not None:
+                pass  # Video resumes reading in generate_frames
 
     def stop_tracking(self):
+        """Stop tracking and turn OFF hardware camera if webcam selected."""
         with self.lock:
             self.is_tracking_enabled = False
+            if not self.is_video_file:
+                self.camera_power_on = False
+                if self.cap is not None:
+                    print("Turning OFF webcam hardware device...")
+                    self.cap.release()
+                    self.cap = None
 
     def reset_grid(self):
+        """Reset optical flow points, cumulative drift, and restart video to frame 0 if video mode."""
         with self.lock:
             self.p0 = None
             self.mask_trail = None
             self.cum_x, self.cum_y = 0.0, 0.0
+            self.telemetry_history.clear()
+            self.frame_counter = 0
+            
+            if self.is_video_file and self.cap is not None and self.cap.isOpened():
+                print(f"Seeking video '{self.current_source}' back to frame 0...")
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     def set_flow_mode(self, mode):
         with self.lock:
@@ -219,8 +232,44 @@ class AdvancedOpticalFlowEngine:
                 "is_tracking": self.is_tracking_enabled,
                 "camera_power_on": self.camera_power_on,
                 "is_recording": self.is_recording,
-                "current_source": self.current_source
+                "current_source": self.current_source,
+                "logged_frames": len(self.telemetry_history)
             }
+
+    def export_csv_file(self):
+        """Generates exact CSV buffer containing frame-by-frame measured numerical values."""
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write CSV Header
+        writer.writerow([
+            "Timestamp", "Frame_Index", "Source", "Flow_Mode", "FPS",
+            "Tracked_Vectors", "Displacement_dX_px", "Displacement_dY_px",
+            "Speed_px_f", "Heading_deg", "Divergence", "Obstacle_Risk",
+            "Cumulative_Drift_X_px", "Cumulative_Drift_Y_px"
+        ])
+        
+        with self.lock:
+            for row in self.telemetry_history:
+                writer.writerow([
+                    row["timestamp"],
+                    row["frame_index"],
+                    row["source"],
+                    row["flow_mode"],
+                    row["fps"],
+                    row["tracked_vectors"],
+                    row["dx"],
+                    row["dy"],
+                    row["speed"],
+                    row["heading_deg"],
+                    row["divergence"],
+                    row["obstacle_risk"],
+                    row["cum_x"],
+                    row["cum_y"]
+                ])
+                
+        output.seek(0)
+        return output.getvalue()
 
     def generate_frames(self):
         frame_time = time.time()
@@ -234,17 +283,18 @@ class AdvancedOpticalFlowEngine:
             with self.lock:
                 cap_ref = self.cap
                 is_file = self.is_video_file
-                power_on = self.camera_power_on
+                tracking_on = self.is_tracking_enabled
+                current_src = self.current_source
 
             frame = None
-            if power_on and cap_ref is not None and cap_ref.isOpened():
+            if cap_ref is not None and cap_ref.isOpened() and (tracking_on or is_file):
                 ret, frame = cap_ref.read()
                 if not ret and is_file:
                     cap_ref.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ret, frame = cap_ref.read()
 
-            # Diagnostic canvas when camera turned off or unavailable
-            if frame is None or frame.size == 0 or not power_on:
+            # Visual Canvas when Camera Off or Stopped
+            if frame is None or frame.size == 0:
                 frame = np.zeros((self.target_h, self.target_w, 3), dtype=np.uint8)
                 for x in range(0, self.target_w, 40):
                     cv2.line(frame, (x, 0), (x, self.target_h), (25, 35, 50), 1)
@@ -252,13 +302,13 @@ class AdvancedOpticalFlowEngine:
                     cv2.line(frame, (0, y), (self.target_w, y), (25, 35, 50), 1)
                 
                 cx, cy = self.target_w // 2, self.target_h // 2
-                msg = "CAMERA HARDWARE POWERED OFF" if not power_on else "WEBCAM SIGNAL NOT DETECTED"
-                color = (0, 165, 255) if not power_on else (0, 0, 255)
+                msg = "CAMERA FEED OFF / STOPPED"
+                color = (0, 165, 255)
                 
                 cv2.circle(frame, (cx, cy), 30, color, 2)
                 cv2.line(frame, (cx - 20, cy - 20), (cx + 20, cy + 20), color, 2)
-                cv2.putText(frame, msg, (140, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
-                cv2.putText(frame, "CLICK 'POWER ON' OR SELECT A DJI DRONE VIDEO", (90, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 255), 1)
+                cv2.putText(frame, msg, (150, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
+                cv2.putText(frame, "CLICK 'START' TO RUN OPTICAL FLOW TELEMETRY", (100, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 255), 1)
                 time.sleep(0.05)
 
             frame = cv2.resize(frame, (self.target_w, self.target_h))
@@ -275,14 +325,14 @@ class AdvancedOpticalFlowEngine:
             with self.lock:
                 self.fps = 0.8 * self.fps + 0.2 * current_fps
 
-            if self.is_tracking_enabled and self.old_gray is not None:
+            if tracking_on and self.old_gray is not None:
+                self.frame_counter += 1
                 if self.flow_mode == "sparse":
                     # SPARSE LUCAS-KANADE GRID FLOW
                     if self.p0 is None or len(self.p0) < 15:
                         self.p0 = self.initialize_spatial_grid(frame_gray)
                         self.mask_trail = np.zeros_like(frame)
 
-                    # STRICT DIMENSION & SHAPE GUARD
                     if self.p0 is not None and len(self.p0) > 0 and self.old_gray.shape == frame_gray.shape:
                         p1, st, err = cv2.calcOpticalFlowPyrLK(self.old_gray, frame_gray, self.p0, None, **self.lk_params)
                         
@@ -325,6 +375,24 @@ class AdvancedOpticalFlowEngine:
                                     self.obstacle_risk = risk
                                     self.cum_x += avg_dx
                                     self.cum_y += avg_dy
+                                    
+                                    # Record EXACT frame-by-frame measured numerical telemetry into history log
+                                    self.telemetry_history.append({
+                                        "timestamp": datetime.now().isoformat(),
+                                        "frame_index": self.frame_counter,
+                                        "source": current_src,
+                                        "flow_mode": self.flow_mode,
+                                        "fps": round(self.fps, 1),
+                                        "tracked_vectors": int(len(valid_new)),
+                                        "dx": round(avg_dx, 2),
+                                        "dy": round(avg_dy, 2),
+                                        "speed": round(speed_mag, 2),
+                                        "heading_deg": round(heading, 1),
+                                        "divergence": round(div_val, 3),
+                                        "obstacle_risk": risk,
+                                        "cum_x": round(self.cum_x, 1),
+                                        "cum_y": round(self.cum_y, 1)
+                                    })
 
                                 self.mask_trail = (self.mask_trail * 0.70).astype(np.uint8)
 
@@ -372,6 +440,23 @@ class AdvancedOpticalFlowEngine:
                             self.cum_x += avg_dx
                             self.cum_y += avg_dy
 
+                            self.telemetry_history.append({
+                                "timestamp": datetime.now().isoformat(),
+                                "frame_index": self.frame_counter,
+                                "source": current_src,
+                                "flow_mode": self.flow_mode,
+                                "fps": round(self.fps, 1),
+                                "tracked_vectors": self.tracked_vectors,
+                                "dx": round(avg_dx, 2),
+                                "dy": round(avg_dy, 2),
+                                "speed": round(speed_mag, 2),
+                                "heading_deg": round(heading, 1),
+                                "divergence": round(self.divergence, 3),
+                                "obstacle_risk": self.obstacle_risk,
+                                "cum_x": round(self.cum_x, 1),
+                                "cum_y": round(self.cum_y, 1)
+                            })
+
             self.old_gray = frame_gray.copy()
 
             with self.lock:
@@ -406,12 +491,33 @@ def api_select_source():
     engine.request_source_load(source)
     return jsonify({"status": "reload_requested", "source": source})
 
-@app.route('/api/camera_power', methods=['POST'])
-def api_camera_power():
-    data = request.get_json() or {}
-    power_on = data.get("power_on", True)
-    engine.toggle_camera_power(power_on)
-    return jsonify({"status": "power_toggled", "power_on": power_on})
+@app.route('/api/upload_video', methods=['POST'])
+def api_upload_video():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(UPLOAD_DIR, filename)
+    file.save(save_path)
+    
+    print(f"✅ Custom video uploaded: '{save_path}'")
+    engine.scan_sources()
+    engine.request_source_load(save_path)
+    return jsonify({"status": "uploaded", "source": save_path, "sources": engine.sources})
+
+@app.route('/api/export_csv', methods=['GET'])
+def api_export_csv():
+    csv_data = engine.export_csv_file()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Response(
+        csv_data,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=optical_flow_telemetry_{timestamp}.csv"}
+    )
 
 @app.route('/api/set_mode', methods=['POST'])
 def api_set_mode():

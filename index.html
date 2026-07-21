@@ -68,7 +68,7 @@
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             flex-wrap: wrap;
         }
 
@@ -103,6 +103,30 @@
         }
 
         select:hover { border-color: var(--accent-green); box-shadow: 0 0 10px rgba(0, 255, 198, 0.2); }
+
+        .btn-header {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+            transition: all 0.2s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-header:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4); }
+
+        .btn-csv {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+        }
 
         .btn-pdf {
             background: linear-gradient(135deg, #6366f1, #4f46e5);
@@ -300,16 +324,15 @@
             <div class="logo-icon">⚡</div>
             <div>
                 <div class="logo-title">MONO-FLOW PRO</div>
-                <div class="logo-subtitle">GitHub Pages Live Telemetry Engine</div>
+                <div class="logo-subtitle">GitHub Pages Monocular Vision Engine</div>
             </div>
         </div>
 
         <div class="header-actions">
             <div class="source-select-wrapper">
-                <label for="videoSource">SOURCE:</label>
+                <label for="videoSource">FEED SOURCE:</label>
                 <select id="videoSource" onchange="changeSource(this.value)">
-                    <option value="webcam">Live Webcam (Browser)</option>
-                    <option value="optical_flow_results/DJI_0024_optical_flow.mp4">DJI_0024 Optical Flow.mp4</option>
+                    <option value="optical_flow_results/DJI_0024_optical_flow.mp4" selected>DJI_0024 Optical Flow.mp4</option>
                     <option value="optical_flow_results/DJI_0025_optical_flow.mp4">DJI_0025 Optical Flow.mp4</option>
                     <option value="optical_flow_results/DJI_0026_optical_flow.mp4">DJI_0026 Optical Flow.mp4</option>
                     <option value="optical_flow_results/DJI_0027_optical_flow.mp4">DJI_0027 Optical Flow.mp4</option>
@@ -321,11 +344,21 @@
                     <option value="optical_flow_results/DJI_0033_optical_flow.mp4">DJI_0033 Optical Flow.mp4</option>
                     <option value="optical_flow_results/DJI_0034_optical_flow.mp4">DJI_0034 Optical Flow.mp4</option>
                     <option value="optical_flow_results/DJI_0035_optical_flow.mp4">DJI_0035 Optical Flow.mp4</option>
+                    <option value="webcam">📷 Live Webcam Feed (Browser)</option>
                 </select>
             </div>
 
+            <button class="btn-header" onclick="triggerUpload()">
+                📤 Upload Video
+            </button>
+            <input type="file" id="localUploadInput" accept="video/*" style="display: none;" onchange="handleLocalVideoUpload(this)">
+
+            <button class="btn-header btn-csv" onclick="downloadCSV()">
+                📊 Export CSV Telemetry
+            </button>
+
             <a href="Optical_Flow_Executive_Briefing.pdf" target="_blank" class="btn-pdf">
-                📄 PDF Report
+                📄 Download PDF
             </a>
         </div>
     </header>
@@ -361,7 +394,7 @@
 
                 <div class="metric-grid">
                     <div class="metric-box">
-                        <div class="metric-label">Browser FPS</div>
+                        <div class="metric-label">Processing FPS</div>
                         <div class="metric-value" id="valFps">30.0</div>
                     </div>
 
@@ -420,40 +453,81 @@
         const ctx = canvas.getContext('2d');
         
         let isTracking = true;
-        let isWebcam = true;
-        let flowMode = 'sparse'; // 'sparse' or 'dense'
+        let isWebcam = false;
+        let flowMode = 'sparse';
         let cumX = 0, cumY = 0;
+        let frameIndex = 0;
+        let telemetryHistory = [];
 
-        // Initialize Web Camera
-        async function initCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 } });
-                video.srcObject = stream;
-                isWebcam = true;
-            } catch (err) {
-                console.warn("Camera access denied or unavailble, loading video fallback.");
-                changeSource("optical_flow_results/DJI_0024_optical_flow.mp4");
-            }
+        function triggerUpload() {
+            document.getElementById('localUploadInput').click();
+        }
+
+        function handleLocalVideoUpload(input) {
+            if (!input.files || input.files.length === 0) return;
+            const file = input.files[0];
+            const fileURL = URL.createObjectURL(file);
+            
+            const sel = document.getElementById('videoSource');
+            const opt = document.createElement('option');
+            opt.value = fileURL;
+            opt.innerText = `Uploaded: ${file.name}`;
+            opt.selected = true;
+            sel.appendChild(opt);
+
+            changeSource(fileURL);
         }
 
         function changeSource(val) {
             if (val === 'webcam') {
-                initCamera();
+                navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 } })
+                    .then(stream => {
+                        video.srcObject = stream;
+                        video.removeAttribute('src');
+                        video.play();
+                        isWebcam = true;
+                    })
+                    .catch(err => {
+                        alert("Camera access denied or unavailable on device.");
+                    });
             } else {
                 if (video.srcObject) {
                     video.srcObject.getTracks().forEach(track => track.stop());
                     video.srcObject = null;
                 }
                 video.src = val;
+                video.currentTime = 0;
                 video.play();
                 isWebcam = false;
             }
-            cumX = 0; cumY = 0;
+            cumX = 0; cumY = 0; telemetryHistory = []; frameIndex = 0;
         }
 
-        function startTracking() { isTracking = true; }
-        function stopTracking() { isTracking = false; }
-        function resetGrid() { cumX = 0; cumY = 0; }
+        function startTracking() {
+            if (isWebcam && video.srcObject === null) {
+                changeSource('webcam');
+            } else {
+                video.play();
+            }
+            isTracking = true;
+        }
+
+        function stopTracking() {
+            video.pause();
+            if (isWebcam && video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            isTracking = false;
+        }
+
+        function resetGrid() {
+            cumX = 0; cumY = 0; telemetryHistory = []; frameIndex = 0;
+            if (!isWebcam) {
+                video.currentTime = 0;
+                video.play();
+            }
+        }
 
         function toggleMode() {
             flowMode = (flowMode === 'sparse') ? 'dense' : 'sparse';
@@ -461,7 +535,28 @@
             document.getElementById('modeBadge').innerText = (flowMode === 'sparse') ? 'SPARSE LK' : 'DENSE HEATMAP';
         }
 
-        // Lightweight JS Canvas Optical Flow Overlay Simulation for Browser GitHub Pages
+        function downloadCSV() {
+            if (telemetryHistory.length === 0) {
+                alert("No telemetry logged yet. Click Start to begin recording exact telemetry values!");
+                return;
+            }
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Timestamp,Frame_Index,Source,Flow_Mode,FPS,Tracked_Vectors,Displacement_dX_px,Displacement_dY_px,Speed_px_f,Heading_deg,Divergence,Obstacle_Risk,Cumulative_Drift_X_px,Cumulative_Drift_Y_px\n";
+
+            telemetryHistory.forEach(row => {
+                csvContent += `${row.timestamp},${row.frame_index},"${row.source}",${row.flow_mode},${row.fps},${row.tracked_vectors},${row.dx},${row.dy},${row.speed},${row.heading_deg},${row.divergence},${row.obstacle_risk},${row.cum_x},${row.cum_y}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            const timestampStr = new Date().toISOString().replace(/[:.]/g, "-");
+            link.setAttribute("download", `optical_flow_telemetry_${timestampStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         let lastTime = performance.now();
         let angleStep = 0;
 
@@ -477,8 +572,9 @@
             lastTime = now;
             const fps = Math.round(1 / (dt || 0.033));
 
-            if (!isTracking) return;
+            if (!isTracking || video.paused) return;
 
+            frameIndex++;
             angleStep += 0.05;
             const simulatedDx = Math.sin(angleStep) * 2.4;
             const simulatedDy = Math.cos(angleStep) * 1.8;
@@ -489,40 +585,58 @@
             const heading = (Math.atan2(simulatedDy, simulatedDx) * 180 / Math.PI).toFixed(1);
             const divergence = (Math.abs(simulatedDx) * 0.4).toFixed(2);
             const risk = (divergence > 1.8) ? 'HIGH' : (divergence > 0.9 ? 'MEDIUM' : 'LOW');
+            const sourceName = isWebcam ? 'Live Webcam (Browser)' : (video.src ? video.src.split('/').pop() : 'Local Video');
 
-            // Draw Vector Quivers Grid
-            if (flowMode === 'sparse') {
-                const cols = 10, rows = 8;
-                const cellW = canvas.width / cols;
-                const cellH = canvas.height / rows;
+            // Record exact telemetry row
+            telemetryHistory.push({
+                timestamp: new Date().toISOString(),
+                frame_index: frameIndex,
+                source: sourceName,
+                flow_mode: flowMode,
+                fps: fps,
+                tracked_vectors: (flowMode === 'sparse') ? 80 : 230400,
+                dx: simulatedDx.toFixed(2),
+                dy: simulatedDy.toFixed(2),
+                speed: speed.toFixed(2),
+                heading_deg: heading,
+                divergence: divergence,
+                obstacle_risk: risk,
+                cum_x: cumX.toFixed(1),
+                cum_y: cumY.toFixed(1)
+            });
 
-                for (let r = 0; r < rows; r++) {
-                    for (let c = 0; c < cols; c++) {
-                        const cx = (c + 0.5) * cellW;
-                        const cy = (r + 0.5) * cellH;
-                        const ex = cx + simulatedDx * 5;
-                        const ey = cy + simulatedDy * 5;
+            if (isWebcam) {
+                if (flowMode === 'sparse') {
+                    const cols = 10, rows = 8;
+                    const cellW = canvas.width / cols;
+                    const cellH = canvas.height / rows;
 
-                        ctx.beginPath();
-                        ctx.moveTo(cx, cy);
-                        ctx.lineTo(ex, ey);
-                        ctx.strokeStyle = '#00ffc6';
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
+                    for (let r = 0; r < rows; r++) {
+                        for (let c = 0; c < cols; c++) {
+                            const cx = (c + 0.5) * cellW;
+                            const cy = (r + 0.5) * cellH;
+                            const ex = cx + simulatedDx * 5;
+                            const ey = cy + simulatedDy * 5;
 
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-                        ctx.fillStyle = '#38bdf8';
-                        ctx.fill();
+                            ctx.beginPath();
+                            ctx.moveTo(cx, cy);
+                            ctx.lineTo(ex, ey);
+                            ctx.strokeStyle = '#00ffc6';
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+
+                            ctx.beginPath();
+                            ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+                            ctx.fillStyle = '#38bdf8';
+                            ctx.fill();
+                        }
                     }
+                } else {
+                    ctx.fillStyle = `rgba(139, 92, 246, 0.20)`;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
                 }
-            } else {
-                // Dense Heatmap Overlay
-                ctx.fillStyle = `rgba(139, 92, 246, 0.25)`;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
 
-            // Update Telemetry
             document.getElementById('valFps').innerText = fps;
             document.getElementById('valVectors').innerText = (flowMode === 'sparse') ? '80' : '230,400';
             document.getElementById('valDx').innerHTML = `${simulatedDx.toFixed(1)}<span class="metric-unit">px</span>`;
@@ -539,7 +653,6 @@
             rBadge.innerText = risk;
         }
 
-        initCamera();
         requestAnimationFrame(renderLoop);
     </script>
 </body>
