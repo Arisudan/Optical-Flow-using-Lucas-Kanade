@@ -1,10 +1,226 @@
-# 📐 Monocular Optical Flow Telemetry Specification
+# Optical Flow Telemetry — Quick Reference
 
-This document provides the universal mathematical equations and inter-relationships for all parameters in your Monocular Optical Flow system. It is formatted to render cleanly across all Markdown previewers (VS Code, GitHub, Obsidian, Jupyter).
+Ten values, one idea: **everything comes from comparing two consecutive video frames.**
 
 ---
 
-## 📌 1. Parameter Summary & Formulas
+## The Big Picture
+
+```
+FPS + Tracked_Vectors  →  Displacement (dX, dY)  →  everything else
+```
+
+- **FPS** and **Tracked_Vectors** are the setup — timing and sample size.
+- **Displacement_dX_px / dY_px** is the one real measurement per frame.
+- **Speed, Heading, Drift, Divergence, Risk** are all just different ways of reading that one measurement.
+
+```mermaid
+flowchart TD
+    A[FPS] --> D[Displacement dX, dY]
+    B[Tracked_Vectors] --> D
+    D --> E[Speed_px_f]
+    D --> F[Heading_deg]
+    D --> G[Cumulative_Drift_X / Y]
+    D --> H[Divergence]
+    H --> I[Obstacle_Risk]
+```
+
+---
+
+## 1. FPS — how fast we're sampling
+
+**What it is:** frames processed per second.
+
+**Formula:**
+```
+FPS = 1 / (tₖ − tₖ₋₁)
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `tₖ` | timestamp of the current frame |
+| `tₖ₋₁` | timestamp of the previous frame |
+| `tₖ − tₖ₋₁` | time gap between the two frames (seconds) |
+| `1 / (gap)` | flips a time gap into a rate — frames per second |
+
+**Plain English:** if two frames are 33 milliseconds apart, FPS ≈ 30. It's just a stopwatch reading — nothing is derived to get this.
+
+---
+
+## 2. Tracked_Vectors (N) — how many points we trust
+
+**What it is:** the number of feature points the tracker successfully followed from one frame to the next.
+
+**Formula:**
+```
+N = count of points where confidence(point) passes threshold
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `points` | the ~100 grid points the tracker starts with each frame |
+| `confidence(point)` | LK's own score for how sure it is that point was tracked correctly |
+| `threshold` | the cutoff confidence score must clear to be trusted |
+| `N` | how many points survive that cutoff |
+
+**Plain English:** out of ~100 dots placed on the ground image, maybe 85 survive tracking. N = 85. Every average calculated later divides by this N — more points, more reliable the numbers below are.
+
+---
+
+## 3. Displacement_dX_px / Displacement_dY_px — the core measurement
+
+**What it is:** how far, on average, the tracked points moved sideways (dX) and up/down (dY) between two frames, in pixels.
+
+**Formula:**
+```
+dX = (1/N) × Σ (xᵢ,ₖ − xᵢ,ₖ₋₁)
+dY = (1/N) × Σ (yᵢ,ₖ − yᵢ,ₖ₋₁)
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `xᵢ,ₖ` | x-position of tracked point i, in the current frame k |
+| `xᵢ,ₖ₋₁` | x-position of that same point i, in the previous frame |
+| `xᵢ,ₖ − xᵢ,ₖ₋₁` | how far point i moved sideways, in pixels |
+| `Σ (...)` | add that up across all N tracked points |
+| `(1/N) × Σ (...)` | turn the total into an average per point |
+| *(same pattern with y for `dY`)* | vertical movement instead of horizontal |
+
+**Plain English:** this is the root value. Every other metric below is just this pair of numbers, viewed differently.
+
+---
+
+## 4. Speed_px_f — how fast, as one number
+
+**What it is:** the straight-line speed of the movement, combining dX and dY.
+
+**Formula:**
+```
+Speed_px_f = √(dX² + dY²)
+Speed_m/s  = Speed_px_f × FPS × (Z / f)
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `dX² + dY²` | squares of sideways and vertical movement (Pythagoras setup) |
+| `√(...)` | combines both directions into one straight-line distance, in pixels per frame |
+| `× FPS` | converts "pixels per frame" into "pixels per second" |
+| `Z` | drone's altitude above ground |
+| `f` | camera focal length |
+| `× (Z / f)` | scales pixel-per-second speed into real meters per second |
+
+**Plain English:** dX and dY are like "moved right" and "moved down" separately. Speed is the diagonal distance — same idea as Pythagoras' theorem for a right triangle.
+
+---
+
+## 5. Heading_deg — which direction
+
+**What it is:** the compass-style direction the drone is drifting, in degrees.
+
+**Formula:**
+```
+Heading_deg = atan2(dY, dX) × (180 / π)
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `dY` | vertical displacement (from Step 3) |
+| `dX` | horizontal displacement (from Step 3) |
+| `atan2(dY, dX)` | angle of the (dX, dY) vector, in **radians** |
+| `× (180 / π)` | converts that angle from radians to **degrees** |
+
+**Reading the result:**
+
+| Heading_deg | Direction |
+|---|---|
+| 0° | Right |
+| 90° | Down |
+| 180° / −180° | Left |
+| −90° | Up |
+
+**Plain English:** Speed tells you *how far* the arrow points; Heading tells you *which way* it points. Same (dX, dY) pair, read as an angle instead of a length — `atan2` is just the standard function for turning a horizontal/vertical pair into an angle, and the `180/π` term is only there to convert the answer into degrees people can read.
+
+---
+
+## 6. Cumulative_Drift_X_px / Y_px — total distance traveled
+
+**What it is:** the running total of dX and dY, added up since the drone took off.
+
+**Formula:**
+```
+ΣXₖ = ΣXₖ₋₁ + dXₖ
+ΣYₖ = ΣYₖ₋₁ + dYₖ
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `ΣXₖ₋₁` | total drift built up through the previous frame |
+| `dXₖ` | the new displacement measured this frame (from Step 3) |
+| `ΣXₖ` | running total after adding this frame's movement |
+| *(same pattern with Y)* | vertical drift instead of horizontal |
+
+**Plain English:** dX/dY tell you the speed *right now*. Drift keeps a running tally, so you always know how far off the starting point the drone has wandered. This is what lets the drone "remember" where home is without GPS.
+
+---
+
+## 7. Divergence — is something getting closer?
+
+**What it is:** a measure of whether the tracked points are spreading *outward* from the center of the camera image.
+
+**Formula:**
+```
+D = (1/N) × Σ ( (rᵢ · vᵢ) / ‖rᵢ‖ )
+```
+
+**Breaking it down:**
+
+| Term | Meaning |
+|---|---|
+| `rᵢ` | vector from the image center to tracked point i |
+| `vᵢ` | that point's own movement vector (δxᵢ, δyᵢ) this frame |
+| `rᵢ · vᵢ` | how much of the point's motion is pointing *away from* center (dot product) |
+| `‖rᵢ‖` | distance of point i from the image center |
+| `(rᵢ · vᵢ) / ‖rᵢ‖` | outward motion, normalized so far and near points are compared fairly |
+| `(1/N) × Σ (...)` | average that outward score across all N tracked points |
+
+**Plain English:** when a drone flies toward a wall, everything in the camera view appears to expand outward from the center — like zooming in. Divergence measures that expansion. It uses the same per-point movements as step 3, just checked against direction-from-center instead of averaged directly.
+
+---
+
+## 8. Obstacle_Risk — the simple traffic light
+
+**What it is:** Divergence converted into one of three labels.
+
+**Formula:**
+```
+Divergence > 2.50        →  HIGH
+1.20 < Divergence ≤ 2.50 →  MEDIUM
+Divergence ≤ 1.20        →  LOW
+```
+
+**Plain English:** no new calculation — just sorting the Divergence number into a bucket a pilot or autopilot can react to instantly.
+
+---
+
+## The One-Sentence Summary
+
+**FPS** and **Tracked_Vectors** set up a trustworthy measurement → **Displacement (dX, dY)** is that one real measurement → **Speed** (how far), **Heading** (which way), and **Drift** (total distance so far) are three plain readings of that same measurement → **Divergence** re-checks the same per-point motions for outward expansion → **Obstacle_Risk** turns that into a simple LOW/MEDIUM/HIGH warning.
+
+---
+
+## Parameter Summary & Formulas
 
 | Parameter Name | Symbol | Standard Formula | Units | Physical / Engineering Meaning |
 | :--- | :--- | :--- | :--- | :--- |
@@ -21,78 +237,9 @@ This document provides the universal mathematical equations and inter-relationsh
 
 ---
 
-## 2. Step-by-Step Detailed Mathematical Formulations
+Dataflow Connection Diagram
 
-### ⏱️ 2.1 Processing Frame Rate (FPS)
-* **Equation**:
-  $$\text{FPS} = \frac{1}{\Delta t} = \frac{1}{t_k - t_{k-1}}$$
-* **Description**: Measures elapsed processing time between consecutive frames.
-* **Conversion**: Converts per-frame measurements ($\text{px/f}$) into per-second rates ($\text{px/s}$).
-
----
-
-### 🎯 2.2 Tracked Feature Vectors (N)
-* **Equation**:
-  $$N = \sum_{i=1}^{M} \text{Inlier}(p_i)$$
-* **Description**: Total count of high-confidence corner features tracked by Pyramid Lucas-Kanade.
-
----
-
-### ↔️ 2.3 Horizontal & Vertical Mean Displacements (ΔX, ΔY)
-* **Equations**:
-  $$\Delta X = \frac{1}{N} \sum_{i=1}^{N} (x_{i, k} - x_{i, k-1})$$
-
-  $$\Delta Y = \frac{1}{N} \sum_{i=1}^{N} (y_{i, k} - y_{i, k-1})$$
-
-* **Inter-relationship**: $\Delta X$ and $\Delta Y$ are the fundamental root outputs of the optical flow engine. All downstream metrics are derived from this pair.
-
----
-
-### ⚡ 2.4 Speed Magnitude (S) & Ground Speed (V)
-* **Pixel Speed Equation**:
-  $$S = \sqrt{\Delta X^2 + \Delta Y^2} \quad [\text{px/frame}]$$
-
-* **Real Metric Velocity Equation**:
-  $$V = S \times \text{FPS} \times \left( \frac{Z}{f} \right) \quad [\text{m/s}]$$
-  *(where $Z$ is altitude height above ground, and $f$ is camera focal length).*
-
----
-
-### 🧭 2.5 Navigation Heading Angle (θ)
-* **Equation**:
-  $$\theta = \operatorname{atan2}(\Delta Y, \Delta X) \times \frac{180}{\pi} \quad [^\circ]$$
-
-* **Compass Direction Mapping**:
-  * `0.0°` = Motion to the Right ($\Delta X > 0, \Delta Y = 0$)
-  * `+90.0°` = Motion Downwards ($\Delta X = 0, \Delta Y > 0$)
-  * `±180.0°` = Motion to the Left ($\Delta X < 0, \Delta Y = 0$)
-  * `-90.0°` = Motion Upwards ($\Delta X = 0, \Delta Y < 0$)
-
----
-
-### 📍 2.6 Cumulative Drift (ΣX, ΣY) & Total Drift Distance (D)
-* **Integrated Equations**:
-  $$\Sigma X_k = \Sigma X_{k-1} + \Delta X_k$$
-
-  $$\Sigma Y_k = \Sigma Y_{k-1} + \Delta Y_k$$
-
-* **Total Distance from Takeoff**:
-  $$D = \sqrt{(\Sigma X)^2 + (\Sigma Y)^2} \quad [\text{pixels}]$$
-
----
-
-### 🌊 2.7 Flow Divergence & Collision Risk
-* **Divergence Equation**:
-  $$\text{Divergence} = \frac{1}{N} \sum_{i=1}^{N} \frac{(x_i - c_x) u_i + (y_i - c_y) v_i}{\sqrt{(x_i - c_x)^2 + (y_i - c_y)^2}}$$
-
-* **Risk Decision Rule**:
-  $$\text{Obstacle Risk} = \begin{cases} \text{HIGH}, & \text{if Divergence } > 2.50 \\ \text{MEDIUM}, & \text{if } 1.20 < \text{Divergence } \le 2.50 \\ \text{LOW}, & \text{if Divergence } \le 1.20 \end{cases}$$
-
----
-
-## 3. Dataflow Connection Diagram
-
-```
+```mermaid
                  +--------------------------------+
                  |    Frame (k-1) & Frame (k)     |
                  +---------------+----------------+
