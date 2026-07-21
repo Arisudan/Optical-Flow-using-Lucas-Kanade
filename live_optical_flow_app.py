@@ -7,6 +7,7 @@ import threading
 import atexit
 import io
 import csv
+import re
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, Response, jsonify, request, send_file
@@ -31,7 +32,7 @@ class AdvancedOpticalFlowEngine:
         self.is_video_file = False
         
         # Settings
-        self.flow_mode = "sparse"  # "sparse" (LK Grid) or "dense" (Farneback HSV)
+        self.flow_mode = "sparse"
         self.is_tracking_enabled = False
         self.camera_power_on = False
         
@@ -76,7 +77,6 @@ class AdvancedOpticalFlowEngine:
         atexit.register(self.close_all_resources)
 
     def close_all_resources(self):
-        """Explicitly releases camera hardware when server shuts down or exits."""
         with self.lock:
             if self.cap is not None:
                 print("Releasing camera hardware device...")
@@ -91,13 +91,15 @@ class AdvancedOpticalFlowEngine:
         dji_files = sorted(list(set(glob.glob("DJI_*.MP4") + glob.glob("DJI_*.mp4"))))
         dji_files = [f for f in dji_files if "optical_flow" not in f and not os.path.isdir(f)]
         
-        upload_files = sorted(glob.glob(os.path.join(UPLOAD_DIR, "*.*")))
-        upload_files = [f for f in upload_files if not os.path.isdir(f)]
+        valid_exts = ("*.mp4", "*.MP4", "*.webm", "*.mkv", "*.mov", "*.avi", "*.m4v")
+        upload_files = []
+        for ext in valid_exts:
+            upload_files.extend(glob.glob(os.path.join(UPLOAD_DIR, ext)))
+        upload_files = sorted(list(set([f for f in upload_files if not os.path.isdir(f)])))
         
         self.sources = ["Live Webcam (0)"] + dji_files + upload_files
 
     def request_source_load(self, source_name):
-        """Thread-safe non-blocking request to switch video source."""
         with self.lock:
             self.pending_source = source_name
             self.need_reload = True
@@ -124,6 +126,8 @@ class AdvancedOpticalFlowEngine:
         else:
             self.cap = cv2.VideoCapture(target)
             self.is_video_file = True
+            if not self.cap.isOpened():
+                print(f"⚠️ Warning: Could not open video file '{target}' with default backend.")
 
         with self.lock:
             self.current_source = target
@@ -157,17 +161,13 @@ class AdvancedOpticalFlowEngine:
         return np.array(points, dtype=np.float32) if len(points) > 0 else None
 
     def start_tracking(self):
-        """Start tracking and hardware camera power if webcam selected."""
         with self.lock:
             self.is_tracking_enabled = True
             if not self.is_video_file:
                 self.camera_power_on = True
                 self.need_reload = True
-            elif self.cap is not None:
-                pass  # Video resumes reading in generate_frames
 
     def stop_tracking(self):
-        """Stop tracking and turn OFF hardware camera if webcam selected."""
         with self.lock:
             self.is_tracking_enabled = False
             if not self.is_video_file:
@@ -178,7 +178,6 @@ class AdvancedOpticalFlowEngine:
                     self.cap = None
 
     def reset_grid(self):
-        """Reset optical flow points, cumulative drift, and restart video to frame 0 if video mode."""
         with self.lock:
             self.p0 = None
             self.mask_trail = None
@@ -186,9 +185,10 @@ class AdvancedOpticalFlowEngine:
             self.telemetry_history.clear()
             self.frame_counter = 0
             
-            if self.is_video_file and self.cap is not None and self.cap.isOpened():
+            if self.is_video_file and self.cap is not None:
                 print(f"Seeking video '{self.current_source}' back to frame 0...")
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                self.cap.release()
+                self.cap = cv2.VideoCapture(self.current_source)
 
     def set_flow_mode(self, mode):
         with self.lock:
@@ -237,11 +237,9 @@ class AdvancedOpticalFlowEngine:
             }
 
     def export_csv_file(self):
-        """Generates exact CSV buffer containing frame-by-frame measured numerical values."""
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Write CSV Header
         writer.writerow([
             "Timestamp", "Frame_Index", "Source", "Flow_Mode", "FPS",
             "Tracked_Vectors", "Displacement_dX_px", "Displacement_dY_px",
@@ -273,10 +271,8 @@ class AdvancedOpticalFlowEngine:
 
     def generate_frames(self):
         frame_time = time.time()
-        anim_step = 0
         
         while True:
-            anim_step += 1
             if self.need_reload:
                 self._perform_source_reload_fast()
 
@@ -289,8 +285,14 @@ class AdvancedOpticalFlowEngine:
             frame = None
             if cap_ref is not None and cap_ref.isOpened() and (tracking_on or is_file):
                 ret, frame = cap_ref.read()
+                
+                # Seamless Video Looping Guard: If video ends (ret is False), re-open file so it NEVER goes blank!
                 if not ret and is_file:
-                    cap_ref.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cap_ref.release()
+                    cap_ref = cv2.VideoCapture(current_src)
+                    with self.lock:
+                        self.cap = cap_ref
+                        self.p0 = None
                     ret, frame = cap_ref.read()
 
             # Visual Canvas when Camera Off or Stopped
@@ -376,7 +378,6 @@ class AdvancedOpticalFlowEngine:
                                     self.cum_x += avg_dx
                                     self.cum_y += avg_dy
                                     
-                                    # Record EXACT frame-by-frame measured numerical telemetry into history log
                                     self.telemetry_history.append({
                                         "timestamp": datetime.now().isoformat(),
                                         "frame_index": self.frame_counter,
@@ -500,11 +501,16 @@ def api_upload_video():
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
 
-    filename = secure_filename(file.filename)
-    save_path = os.path.join(UPLOAD_DIR, filename)
+    # Robust Filename Sanitization preserving extension
+    raw_name = os.path.basename(file.filename)
+    clean_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', raw_name)
+    if not clean_name:
+        clean_name = f"uploaded_video_{int(time.time())}.mp4"
+
+    save_path = os.path.normpath(os.path.join(UPLOAD_DIR, clean_name))
     file.save(save_path)
     
-    print(f"✅ Custom video uploaded: '{save_path}'")
+    print(f"[UPLOAD SUCCESS] Video Upload Received: '{save_path}'")
     engine.scan_sources()
     engine.request_source_load(save_path)
     return jsonify({"status": "uploaded", "source": save_path, "sources": engine.sources})
