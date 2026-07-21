@@ -72,6 +72,7 @@ class AdvancedOpticalFlowEngine:
         self.p0 = None
         self.old_gray = None
         self.mask_trail = None
+        self.cell_status = np.ones((self.grid_rows, self.grid_cols), dtype=bool)
         
         self.scan_sources()
         atexit.register(self.close_all_resources)
@@ -203,6 +204,7 @@ class AdvancedOpticalFlowEngine:
                     y1 = r * cell_h
                     points.append([[x1 + cell_w / 2.0, y1 + cell_h / 2.0]])
                     
+        self.cell_status = np.ones((self.grid_rows, self.grid_cols), dtype=bool)
         return np.array(points, dtype=np.float32) if len(points) > 0 else None
 
     def start_tracking(self):
@@ -373,7 +375,7 @@ class AdvancedOpticalFlowEngine:
             if tracking_on and self.old_gray is not None:
                 self.frame_counter += 1
                 if self.flow_mode == "sparse":
-                    if self.p0 is None or len(self.p0) < 15:
+                    if self.p0 is None:
                         self.p0 = self.initialize_spatial_grid(frame_gray)
                         self.mask_trail = np.zeros_like(frame)
 
@@ -385,7 +387,60 @@ class AdvancedOpticalFlowEngine:
                             good_new = p1[st_flat].reshape(-1, 2)
                             good_old = self.p0[st_flat].reshape(-1, 2)
 
-                            if len(good_new) > 0:
+                            if len(good_new) == 0:
+                                # Total tracking loss -> full grid reset
+                                self.p0 = self.initialize_spatial_grid(frame_gray)
+                                self.mask_trail = np.zeros_like(frame)
+                            else:
+                                next_p0 = self.p0.copy()
+                                lost_cell_indices = []
+                                cell_w = self.target_w // self.grid_cols
+                                cell_h = self.target_h // self.grid_rows
+
+                                for r in range(self.grid_rows):
+                                    for c in range(self.grid_cols):
+                                        idx = r * self.grid_cols + c
+                                        if idx < len(st_flat) and st_flat[idx]:
+                                            next_p0[idx, 0] = p1[idx, 0]
+                                            self.cell_status[r, c] = True
+                                        else:
+                                            self.cell_status[r, c] = False
+                                            lost_cell_indices.append((r, c, idx))
+
+                                # Selective re-seeding for lost cells only
+                                if len(lost_cell_indices) > 0:
+                                    mask_lost = np.zeros((self.target_h, self.target_w), dtype=np.uint8)
+                                    for (r, c, idx) in lost_cell_indices:
+                                        y1, y2 = r * cell_h, (r + 1) * cell_h
+                                        x1, x2 = c * cell_w, (c + 1) * cell_w
+                                        mask_lost[y1:y2, x1:x2] = 255
+                                    
+                                    feature_params = dict(maxCorners=150, qualityLevel=0.1, minDistance=3, blockSize=5)
+                                    corners_lost = cv2.goodFeaturesToTrack(frame_gray, mask=mask_lost, **feature_params)
+                                    
+                                    lost_cell_best = {}
+                                    if corners_lost is not None:
+                                        for pt in corners_lost:
+                                            x, y = float(pt[0][0]), float(pt[0][1])
+                                            cr = int(y // cell_h)
+                                            cc = int(x // cell_w)
+                                            cr = min(max(cr, 0), self.grid_rows - 1)
+                                            cc = min(max(cc, 0), self.grid_cols - 1)
+                                            
+                                            ckey = (cr, cc)
+                                            if ckey not in lost_cell_best:
+                                                lost_cell_best[ckey] = [x, y]
+                                                
+                                    for (r, c, idx) in lost_cell_indices:
+                                        ckey = (r, c)
+                                        if ckey in lost_cell_best:
+                                            next_p0[idx, 0] = lost_cell_best[ckey]
+                                        else:
+                                            x1 = c * cell_w
+                                            y1 = r * cell_h
+                                            next_p0[idx, 0] = [x1 + cell_w / 2.0, y1 + cell_h / 2.0]
+                                        self.cell_status[r, c] = True
+
                                 disp = good_new - good_old
                                 dx_vecs = disp[:, 0]
                                 dy_vecs = disp[:, 1]
@@ -450,10 +505,11 @@ class AdvancedOpticalFlowEngine:
                                     cv2.circle(frame, (c, d), 3, (0, 255, 255), -1)
 
                                 frame = cv2.add(frame, self.mask_trail)
-                                self.p0 = valid_new.reshape(-1, 1, 2)
-                            else: self.p0 = None
-                        else: self.p0 = None
-                    else: self.p0 = self.initialize_spatial_grid(frame_gray)
+                                self.p0 = next_p0
+                        else:
+                            self.p0 = self.initialize_spatial_grid(frame_gray)
+                    else:
+                        self.p0 = self.initialize_spatial_grid(frame_gray)
 
                 elif self.flow_mode == "dense":
                     if self.old_gray.shape == frame_gray.shape:
