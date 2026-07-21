@@ -25,8 +25,9 @@ def process_dji_video(input_video_path, output_dir=OUTPUT_DIR, min_features=10, 
     fps    = int(cap.get(cv2.CAP_PROP_FPS)) or 30
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    target_w = 960
-    target_h = int(target_w * orig_h / orig_w)
+    # Fast Web-Optimized Resolution (640x360 for GitHub Pages streaming & fast upload)
+    target_w = 640
+    target_h = 360
 
     feature_params = dict(maxCorners=max_corners, qualityLevel=0.3, minDistance=7, blockSize=7)
     lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -48,7 +49,7 @@ def process_dji_video(input_video_path, output_dir=OUTPUT_DIR, min_features=10, 
     refreshes = 0
     start_time = time.time()
 
-    print(f"\n🛸 Processing DJI Video: '{input_video_path}' ({total_frames} frames, {orig_w}x{orig_h} @ {fps}fps)...")
+    print(f"\n[PROCESSING] Processing DJI Video: '{input_video_path}' ({total_frames} frames, {target_w}x{target_h} @ {fps}fps)...")
 
     while True:
         ret, frame = cap.read()
@@ -57,8 +58,8 @@ def process_dji_video(input_video_path, output_dir=OUTPUT_DIR, min_features=10, 
 
         frame = cv2.resize(frame, (target_w, target_h))
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame_idx += 1
 
-        # Dynamic Point Refresh
         if p0 is None or len(p0) < min_features:
             p0 = cv2.goodFeaturesToTrack(frame_gray, mask=None, **feature_params)
             mask = np.zeros_like(frame)
@@ -66,58 +67,55 @@ def process_dji_video(input_video_path, output_dir=OUTPUT_DIR, min_features=10, 
 
         if p0 is not None and len(p0) > 0:
             p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
-            if p1 is not None and st is not None:
-                good_new = p1[st == 1]
-                good_old = p0[st == 1]
 
-                for i, (new, old) in enumerate(zip(good_new, good_old)):
-                    a, b = new.ravel()
-                    c, d = old.ravel()
-                    mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (0, 255, 0), 2)
-                    frame = cv2.circle(frame, (int(a), int(b)), 4, (0, 255, 255), -1)
+            if p1 is not None and st is not None and len(st) == len(p0):
+                st_flat = st.ravel() == 1
+                good_new = p1[st_flat].reshape(-1, 2)
+                good_old = p0[st_flat].reshape(-1, 2)
 
-                img = cv2.add(frame, mask)
-                
-                # Telemetry HUD
-                cv2.putText(img, f"DJI Drone LK Optical Flow | Frame: {frame_idx}/{total_frames}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
-                cv2.putText(img, f"Tracked Features: {len(good_new)} | Refreshes: {refreshes}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 255, 0), 2)
+                mask = (mask * 0.70).astype(np.uint8)
 
-                out.write(img)
-                old_gray = frame_gray.copy()
+                for new, old in zip(good_new, good_old):
+                    a, b = int(new[0]), int(new[1])
+                    c, d = int(old[0]), int(old[1])
+                    end_x = int(c + (a - c) * 2.5)
+                    end_y = int(d + (b - d) * 2.5)
+
+                    cv2.arrowedLine(mask, (c, d), (end_x, end_y), (0, 255, 198), 2, tipLength=0.3)
+                    cv2.circle(frame, (c, d), 3, (0, 255, 255), -1)
+
+                output_frame = cv2.add(frame, mask)
                 p0 = good_new.reshape(-1, 1, 2)
             else:
-                out.write(frame)
-                old_gray = frame_gray.copy()
+                output_frame = frame
                 p0 = None
         else:
-            out.write(frame)
-            old_gray = frame_gray.copy()
+            output_frame = frame
+            p0 = None
 
-        frame_idx += 1
+        out.write(output_frame)
+        old_gray = frame_gray.copy()
 
     cap.release()
     out.release()
+
     elapsed = time.time() - start_time
-    print(f"DONE: '{input_video_path}' in {elapsed:.2f}s -> Saved: '{output_video_path}'")
+    size_mb = os.path.getsize(output_video_path) / (1024 * 1024)
+    print(f"[SUCCESS] Finished '{os.path.basename(output_video_path)}' in {elapsed:.1f}s | Size: {size_mb:.2f} MB")
     return output_video_path
 
-def main():
-    dji_files = sorted(list(set(glob.glob("DJI_*.MP4") + glob.glob("DJI_*.mp4"))))
-    dji_files = [f for f in dji_files if "optical_flow" not in f]
-
-    print(f"Found {len(dji_files)} DJI drone video file(s):")
-    for idx, f in enumerate(dji_files, 1):
-        print(f" [{idx}] {f}")
-
-    if not dji_files:
-        print("No DJI MP4 video files found in current directory.")
-        return
-
-    print(f"\nProcessing all DJI drone videos into '{OUTPUT_DIR}' folder...")
-    for f in dji_files:
-        process_dji_video(f)
-
-    print(f"\nAll DJI drone video processing complete! Outputs saved in '{OUTPUT_DIR}'.")
-
 if __name__ == "__main__":
-    main()
+    dji_files = sorted(list(set(glob.glob("DJI_*.MP4") + glob.glob("DJI_*.mp4"))))
+    dji_files = [f for f in dji_files if "optical_flow" not in f and not os.path.isdir(f)]
+
+    print(f"Found {len(dji_files)} DJI drone video files to convert for web streaming:")
+    for f in dji_files:
+        print(f" - {f}")
+
+    results = []
+    for video_file in dji_files:
+        out_path = process_dji_video(video_file)
+        if out_path:
+            results.append(out_path)
+
+    print(f"\n🎉 All {len(results)} DJI Drone videos converted to optical flow clips in '{OUTPUT_DIR}'!")
