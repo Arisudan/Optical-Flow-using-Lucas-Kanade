@@ -1,19 +1,23 @@
-# Raw Large Drone Video Files (>100MB GitHub limit)
-DJI_*.MP4
-DJI_*.mp4
+# Exclude ONLY raw 4K videos in root folder
+/DJI_0024.MP4
+/DJI_0025.MP4
+/DJI_0026.MP4
+/DJI_0027.MP4
+/DJI_0028.MP4
+/DJI_0029.MP4
+/DJI_0030.MP4
+/DJI_0031.MP4
+/DJI_0032.MP4
+/DJI_0033.MP4
+/DJI_0034.MP4
+/DJI_0035.MP4
 
-# Python Cache
+# Force include optical_flow_results folder and videos
+!optical_flow_results/
+!optical_flow_results/*.mp4
+
+# Python Cache & Temp
 __pycache__/
 *.py[cod]
-*$py.class
-
-# IDE & System
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-*.log
 .system_generated/
-
-# Scratch & Temporary
 scratch/
